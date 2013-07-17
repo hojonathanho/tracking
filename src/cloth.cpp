@@ -13,14 +13,15 @@ namespace tracking {
 
 struct PositionConstraint {
   enum Type { ANCHOR=0, DISTANCE };
+  int m_id;
   virtual Type getType() const = 0;
   virtual void enforce(NPMatrixd& x) = 0;
 };
 struct AnchorConstraint : public PositionConstraint {
   int m_i_point; Vector3d m_anchor_pos;
   AnchorConstraint(int i_point, const Vector3d &anchor_pos) : m_i_point(i_point), m_anchor_pos(anchor_pos) { }
-  Type getType() const { return ANCHOR; }
-  void enforce(NPMatrixd& x) {
+  virtual Type getType() const { return ANCHOR; }
+  virtual void enforce(NPMatrixd& x) {
     x.row(m_i_point) = m_anchor_pos;
   }
 };
@@ -28,8 +29,9 @@ struct DistanceConstraint : public PositionConstraint {
   int m_i_point1; int m_i_point2; double m_invm_point1, m_invm_point2; double m_resting_len;
   DistanceConstraint(int i_point1, int i_point2, double invm_point1, double invm_point2, double resting_len) :
     m_i_point1(i_point1), m_i_point2(i_point2), m_invm_point1(invm_point1), m_invm_point2(invm_point2), m_resting_len(resting_len) { }
-  Type getType() const { return DISTANCE; }
-  void enforce(NPMatrixd& x) {
+  virtual Type getType() const { return DISTANCE; }
+  virtual void enforce(NPMatrixd& x) {
+    if (m_invm_point1 == 0 && m_invm_point2 == 0) return; // TODO: tolerance?
     Vector3d dir = x.row(m_i_point1) - x.row(m_i_point2);
     double norm = dir.norm();
     double weight = m_invm_point1 / (m_invm_point1 + m_invm_point2);
@@ -42,6 +44,8 @@ struct DistanceConstraint : public PositionConstraint {
 class Cloth::Impl {
 public:
   Impl(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params) {
+    m_next_constraint_id = 0;
+
     // initial positions
     m_num_nodes = init_x.rows();
     if (init_x.cols() != 3) {
@@ -67,33 +71,40 @@ public:
     m_f.setZero();
 
     m_sim_params = sim_params;
-    cout << "constructed with dt, gravity = " << sim_params.dt << ' ' << sim_params.gravity.transpose() << endl;
   }
 
   void step() {
-    cout << "stepping, gravity = " << m_sim_params.gravity << endl;
     for (int i = 0; i < m_num_nodes; ++i) {
       m_v.row(i) += m_sim_params.dt * m_invm(i) * (m_sim_params.gravity + m_f.row(i));
     }
 
     // damp velocities here
 
-    cout << "a" << endl;
     m_tmp_x = m_x + m_sim_params.dt*m_v;
 
     for (int iter = 0; iter < m_sim_params.solver_iters; ++iter) {
       for (int c = 0; c < m_constraints.size(); ++c) {
-        m_constraints[c]->enforce(m_tmp_x);
+        if (m_constraint_on[m_constraints[c]->m_id]) {
+          m_constraints[c]->enforce(m_tmp_x);
+        }
       }
     }
 
-    cout << "b" << endl;
     m_v = (m_tmp_x - m_x) / m_sim_params.dt;
-    cout << "c" << endl;
+
     m_x = m_tmp_x;
 
     // velocity update here
   }
+
+  int add_constraint(boost::shared_ptr<PositionConstraint> cnt) {
+    cnt->m_id = m_next_constraint_id++;
+    m_constraints.push_back(cnt);
+    m_constraint_on.push_back(true);
+    return cnt->m_id;
+  }
+  void disable_constraint(int i) { m_constraint_on[i] = false; }
+  void enable_constraint(int i) { m_constraint_on[i] = true; }
 
 private:
   friend class Cloth;
@@ -104,25 +115,28 @@ private:
   NPMatrixd m_x, m_v, m_tmp_x, m_f;
   VectorXd m_invm;
 
+  int m_next_constraint_id;
   vector<boost::shared_ptr<PositionConstraint> > m_constraints;
+  vector<bool> m_constraint_on;
 };
 
 
 Cloth::Cloth(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params)
-  : m_impl(new Impl(init_x, m, sim_params)) {
-cout << "other constructed with dt, gravity = " << sim_params.dt << ' ' << sim_params.gravity<< endl;
-
-  }
+  : m_impl(new Impl(init_x, m, sim_params)) { }
 Cloth::~Cloth() { delete m_impl; }
 
 void Cloth::step() { m_impl->step(); }
 py::object Cloth::get_node_positions() const { return m_impl->m_x.ndarray(); }
 
-void Cloth::add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos) {
-  m_impl->m_constraints.push_back(boost::make_shared<AnchorConstraint>(i_point, anchor_pos));
+int Cloth::add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos) {
+  m_impl->m_invm(i_point) = 0;
+  return m_impl->add_constraint(boost::make_shared<AnchorConstraint>(i_point, anchor_pos));
 }
-void Cloth::add_distance_constraint(int i_point1, int i_point2, double resting_len) {
-  m_impl->m_constraints.push_back(boost::make_shared<DistanceConstraint>(i_point1, i_point2, m_impl->m_invm(i_point1), m_impl->m_invm(i_point2), resting_len));
+int Cloth::add_distance_constraint(int i_point1, int i_point2, double resting_len) {
+  return m_impl->add_constraint(boost::make_shared<DistanceConstraint>(i_point1, i_point2, m_impl->m_invm(i_point1), m_impl->m_invm(i_point2), resting_len));
 }
+
+void Cloth::disable_constraint(int i) { m_impl->disable_constraint(i); }
+void Cloth::enable_constraint(int i) { m_impl->enable_constraint(i); }
 
 } // namespace tracking

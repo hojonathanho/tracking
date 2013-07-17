@@ -8,30 +8,7 @@ using namespace std;
 namespace py = boost::python;
 using tracking::Cloth;
 
-struct NPMatrixd_to_python {
-  static PyObject* convert(const NPMatrixd& m) {
-    return py::incref(m.ndarray().ptr());
-  }
-};
-
-struct NPMatrixd_from_python {
-  NPMatrixd_from_python() {
-    py::converter::registry::push_back(&convertible, &construct, py::type_id<NPMatrixd>());
-  }
-
-  static void* convertible(PyObject* obj_ptr) {
-    // leave the check to the NPMatrixd constructor
-    return obj_ptr;
-  }
-
-  static void construct(PyObject* obj_ptr, py::converter::rvalue_from_python_stage1_data* data) {
-    py::object value(py::handle<>(py::borrowed(obj_ptr)));
-    void* storage = ((py::converter::rvalue_from_python_storage<NPMatrixd>*) data)->storage.bytes;
-    new (storage) NPMatrixd(value);
-    data->convertible = storage;
-  }
-};
-
+// From https://raw.github.com/mapnik/pymapnik2/master/cpp/python_optional.hpp
 template <typename T, typename X1 = boost::python::detail::not_specified, typename X2 = boost::python::detail::not_specified, typename X3 = boost::python::detail::not_specified>
 class class_with_converter : public boost::python::class_<T, X1, X2, X3>
 {
@@ -67,6 +44,9 @@ public:
 
 
 BOOST_PYTHON_MODULE(trackingpy) {
+  py::to_python_converter<NPMatrixd, NPMatrixd::ToPythonConverter>();
+  NPMatrixd::FromPythonConverter();
+
   // py::class_<Cloth::ClothParams>("ClothParams")
   //   .add_property("init_x", &Cloth::ClothParams::get_init_x, &Cloth::ClothParams::set_init_x)
   //   .add_property("init_v", &Cloth::ClothParams::get_init_v, &Cloth::ClothParams::set_init_v)
@@ -80,16 +60,15 @@ BOOST_PYTHON_MODULE(trackingpy) {
     ;
 
 
-  py::to_python_converter<NPMatrixd, NPMatrixd_to_python>();
-  NPMatrixd_from_python();
 
   // py::class_<NPMatrixd>("NPMatrixd", py::init<const py::object&>());
 
-  //py::class_<Cloth>("Cloth", py::init<const NPMatrixd&, const NPMatrixd&, const Cloth::SimulationParams&>())
-  py::class_<Cloth>("Cloth", py::init<const py::object&, const py::object&, const Cloth::SimulationParams&>())
+  py::class_<Cloth>("Cloth", py::init<const NPMatrixd&, const NPMatrixd&, const Cloth::SimulationParams&>())
     .def("step", &Cloth::step)
     .def("get_node_positions", &Cloth::get_node_positions)
     .def("add_anchor_constraint", &Cloth::add_anchor_constraint)
     .def("add_distance_constraint", &Cloth::add_distance_constraint)
+    .def("enable_constraint", &Cloth::enable_constraint)
+    .def("disable_constraint", &Cloth::disable_constraint)
     ;
 }

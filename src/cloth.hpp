@@ -28,26 +28,15 @@ public:
     double dt;
     int solver_iters;
     NPMatrixd gravity;
-
-    // SimulationParams() {
-    //   dt = .01;
-    //   solver_iters = 2;
-    //   gravity = Eigen::Vector3d(0, 0, -20);
-    //   std::cout << "plain old constructor " << gravity << std::endl;
-    // }
-    // SimulationParams(const SimulationParams& other) {
-    //   std::cout << "explicit copy constructor" << std::endl;
-    //   dt = other.dt;
-    //   solver_iters = other.solver_iters;
-    //   gravity = other.gravity;
-    // }
   };
 
   Cloth(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params);
   ~Cloth();
 
-  void add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos);
-  void add_distance_constraint(int i_point1, int i_point2, double resting_len);
+  int add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos);
+  int add_distance_constraint(int i_point1, int i_point2, double resting_len);
+  void disable_constraint(int i);
+  void enable_constraint(int i);
 
   void step();
 

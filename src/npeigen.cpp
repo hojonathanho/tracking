@@ -1,9 +1,9 @@
 #include "npeigen.hpp"
 
-static boost::python::object numpy;
-boost::python::object GetNumPyMod() {
+static py::object numpy;
+py::object GetNumPyMod() {
   if (numpy.is_none()) {
-    numpy = boost::python::import("numpy");
+    numpy = py::import("numpy");
   }
   return numpy;
 }

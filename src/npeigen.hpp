@@ -8,7 +8,8 @@
 
 #include <iostream>
 
-boost::python::object GetNumPyMod();
+namespace py = boost::python;
+py::object GetNumPyMod();
 
 template<typename Scalar>
 struct NPMatrixTypes {
@@ -29,40 +30,34 @@ public:
   }
 
   NPMatrix(const NPMatrix& other) : Base(NULL, 0, 0) {
-    std::cout << "copy constructor " << other.transpose() << std::endl;
-    // resize(other.rows(), other.cols());
-    // Base::operator=(other);
     operator=(other);
   }
 
   template<typename OtherDerived>
   NPMatrix(const Eigen::MatrixBase<OtherDerived>& other) : Base(NULL, 0, 0) {
-    // resize(other.rows(), other.cols());
-    // Base::operator=(other);
     operator=(other);
   }
 
-  // TODO
-  NPMatrix(const boost::python::object &other) : Base(NULL, 0, 0) {
+  NPMatrix(const py::object &other) : Base(NULL, 0, 0) {
     operator=(Wrap(other));
   }
 
 
-  static NPMatrix Wrap(const boost::python::object &other) {
+  static NPMatrix Wrap(const py::object &other) {
     NPMatrix out;
     out.m_ndarray = other;
-    std::string dtype = boost::python::extract<std::string>(other.attr("dtype").attr("name"));
+    std::string dtype = py::extract<std::string>(other.attr("dtype").attr("name"));
     if (dtype != NPMatrixTypes<Scalar>::scalar_npname) {
       throw std::runtime_error((boost::format("Error converting Python ndarray to Eigen matrix: expected dtype %s, got %s instead")
         % NPMatrixTypes<Scalar>::scalar_npname % dtype).str());
     }
-    boost::python::tuple shape = boost::python::extract<boost::python::tuple>(other.attr("shape"));
-    switch (boost::python::len(shape)) {
+    py::tuple shape = py::extract<py::tuple>(other.attr("shape"));
+    switch (py::len(shape)) {
     case 1:
-      out.resetMap(boost::python::extract<int>(shape[0]), 1);
+      out.resetMap(py::extract<int>(shape[0]), 1);
       break;
     case 2:
-      out.resetMap(boost::python::extract<int>(shape[0]), boost::python::extract<int>(shape[1]));
+      out.resetMap(py::extract<int>(shape[0]), py::extract<int>(shape[1]));
       break;
     default:
       throw std::runtime_error("ndarray must have rank 1 or 2");
@@ -79,50 +74,66 @@ public:
   }
 
   NPMatrix& operator=(const NPMatrix& other) {
-    std::cout << "special operator=" << std::endl;
     resize(other.rows(), other.cols());
     Base::operator=(other);
-    // std::cout << *this << std::endl;
-    // std::cout << "is equal? " << this->m_ndarray.ptr() << ' ' << other.m_ndarray.ptr() << std::endl;
     return *this;
   }
 
   template<typename OtherDerived>
   NPMatrix& operator=(const Eigen::MatrixBase<OtherDerived>& other) {
     resize(other.rows(), other.cols());
-    std::cout << "operator= " << other.transpose() << std::endl;
     Base::operator=(other);
-    std::cout << "result= " << this->transpose() << std::endl;
     return *this;
   }
 
-  NPMatrix& operator=(const boost::python::object &other) {
+  NPMatrix& operator=(const py::object &other) {
     return operator=(Wrap(other));
   }
 
-  const boost::python::object &ndarray() const { return m_ndarray; }
+  const py::object &ndarray() const { return m_ndarray; }
+
+
+  // Boost Python converters
+  struct ToPythonConverter {
+    static PyObject* convert(const NPMatrix<Scalar>& m) {
+      return py::incref(m.ndarray().ptr());
+    }
+  };
+  struct FromPythonConverter {
+    FromPythonConverter() {
+      py::converter::registry::push_back(&convertible, &construct, py::type_id<NPMatrix<Scalar> >());
+    }
+    static void* convertible(PyObject* obj_ptr) {
+      // leave the check to the NPMatrix constructor
+      return obj_ptr;
+    }
+    static void construct(PyObject* obj_ptr, py::converter::rvalue_from_python_stage1_data* data) {
+      py::object value(py::handle<>(py::borrowed(obj_ptr)));
+      void* storage = ((py::converter::rvalue_from_python_storage<NPMatrix<Scalar> >*) data)->storage.bytes;
+      new (storage) NPMatrix<Scalar>(value);
+      data->convertible = storage;
+    }
+  };
 
 private:
-  boost::python::object m_ndarray;
-
-
-
+  py::object m_ndarray;
 
   void resetMap(int rows, int cols) {
     new (this) Base(getNdarrayPointer(m_ndarray), rows, cols);
   }
 
-  static boost::python::object makeNdarray(int rows, int cols) {
-    return GetNumPyMod().attr("zeros")(boost::python::make_tuple(rows, cols), NPMatrixTypes<Scalar>::scalar_npname, "C");
+  static py::object makeNdarray(int rows, int cols) {
+    return GetNumPyMod().attr("zeros")(py::make_tuple(rows, cols), NPMatrixTypes<Scalar>::scalar_npname, "C");
   }
 
-  static Scalar* getNdarrayPointer(const boost::python::object& arr) {
-    return reinterpret_cast<Scalar*> (boost::python::extract<long int>(arr.attr("ctypes").attr("data"))());
+  static Scalar* getNdarrayPointer(const py::object& arr) {
+    return reinterpret_cast<Scalar*> (py::extract<long int>(arr.attr("ctypes").attr("data"))());
   }
 };
 
 typedef NPMatrix<int> NPMatrixi;
 typedef NPMatrix<float> NPMatrixf;
 typedef NPMatrix<double> NPMatrixd;
+
 
 #endif // __NPEIGEN_HPP__
