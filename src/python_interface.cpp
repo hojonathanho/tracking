@@ -88,6 +88,8 @@ BOOST_PYTHON_MODULE(trackingpy) {
   //py::class_<Cloth>("Cloth", py::init<const NPMatrixd&, const NPMatrixd&, const Cloth::SimulationParams&>())
   py::class_<Cloth>("Cloth", py::init<const py::object&, const py::object&, const Cloth::SimulationParams&>())
     .def("step", &Cloth::step)
-    .def("getNodePositions", &Cloth::getNodePositions)
+    .def("get_node_positions", &Cloth::get_node_positions)
+    .def("add_anchor_constraint", &Cloth::add_anchor_constraint)
+    .def("add_distance_constraint", &Cloth::add_distance_constraint)
     ;
 }

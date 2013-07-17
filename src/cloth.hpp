@@ -46,8 +46,12 @@ public:
   Cloth(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params);
   ~Cloth();
 
+  void add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos);
+  void add_distance_constraint(int i_point1, int i_point2, double resting_len);
+
   void step();
-  py::object getNodePositions() const;
+
+  py::object get_node_positions() const;
 
 
 private:
