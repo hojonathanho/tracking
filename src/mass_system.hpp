@@ -7,10 +7,10 @@ namespace tracking {
 
 namespace py = boost::python;
 
-class Cloth {
+class MassSystem {
 public:
 
-  // struct ClothParams {
+  // struct MassSystemParams {
   //   NPMatrixd init_x, init_v, m;
 
   //   // boost python compatibility
@@ -27,11 +27,11 @@ public:
   struct SimulationParams {
     double dt;
     int solver_iters;
-    NPMatrixd gravity;
+    Eigen::Vector3d gravity;
   };
 
-  Cloth(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params);
-  ~Cloth();
+  MassSystem(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params);
+  ~MassSystem();
 
   int add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos);
   int add_distance_constraint(int i_point1, int i_point2, double resting_len);

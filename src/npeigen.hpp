@@ -136,4 +136,32 @@ typedef NPMatrix<float> NPMatrixf;
 typedef NPMatrix<double> NPMatrixd;
 
 
+template<typename _Scalar, int _Rows, int _Cols, int _Options, int _MaxRows, int _MaxCols>
+struct EigenMatrixConverters {
+  typedef Eigen::Matrix<_Scalar, _Rows, _Cols, _Options, _MaxRows, _MaxCols> MatrixType;
+  // Boost Python converters
+  struct ToPython {
+    static PyObject* convert(const MatrixType& m) {
+      return py::incref(NPMatrix<_Scalar>(m).ndarray().ptr());
+    }
+  };
+  struct FromPython {
+    FromPython() {
+      py::converter::registry::push_back(&convertible, &construct, py::type_id<MatrixType>());
+    }
+    static void* convertible(PyObject* obj_ptr) {
+      // leave the check to the NPMatrix constructor
+      return obj_ptr;
+    }
+    static void construct(PyObject* obj_ptr, py::converter::rvalue_from_python_stage1_data* data) {
+      py::object value(py::handle<>(py::borrowed(obj_ptr)));
+      void* storage = ((py::converter::rvalue_from_python_storage<MatrixType>*) data)->storage.bytes;
+      new (storage) MatrixType(NPMatrix<_Scalar>::Wrap(value));
+      data->convertible = storage;
+    }
+  };
+};
+
+
+
 #endif // __NPEIGEN_HPP__

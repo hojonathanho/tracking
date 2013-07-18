@@ -15,10 +15,7 @@ add_executable(test_npeigen
 )
 target_link_libraries(test_npeigen ${Boost_PYTHON_LIBRARY} ${PYTHON_LIBRARIES})
 
-add_executable(blah
-  cloth.cpp
-)
 
 include_directories(${PYTHON_NUMPY_INCLUDE_DIR})
-boost_python_module(trackingpy python_interface.cpp cloth.cpp npeigen.cpp)
+boost_python_module(trackingpy python_interface.cpp mass_system.cpp npeigen.cpp)
 target_link_libraries(trackingpy ${Boost_SYSTEM_LIBRARY})
