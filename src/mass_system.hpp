@@ -38,6 +38,7 @@ public:
   int add_distance_constraint(int i_point1, int i_point2, double resting_len);
   void disable_constraint(int i);
   void enable_constraint(int i);
+  void randomize_constraints();
 
   void step();
 

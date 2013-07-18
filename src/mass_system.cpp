@@ -171,11 +171,17 @@ public:
 
     // satisfy constraints
     for (int iter = 0; iter < m_sim_params.solver_iters; ++iter) {
-      for (int c = 0; c < m_constraints.size(); ++c) {
-        if (m_constraints[c]->m_enabled) {
-          m_constraints[c]->enforce(m_tmp_x);
+      for (int c = 0; c < m_constraint_ordering.size(); ++c) {
+        PositionConstraint& cnt = *m_constraints[m_constraint_ordering[c]];
+        if (cnt.m_enabled) {
+          cnt.enforce(m_tmp_x);
         }
       }
+      // for (int c = 0; c < m_constraints.size(); ++c) {
+      //   if (m_constraints[c]->m_enabled) {
+      //     m_constraints[c]->enforce(m_tmp_x);
+      //   }
+      // }
     }
 
     // retroactively set velocities
@@ -189,10 +195,18 @@ public:
     cnt->m_id = m_next_constraint_id++;
     cnt->m_enabled = true;
     m_constraints.push_back(cnt);
+    m_constraint_ordering.push_back(cnt->m_id);
     return cnt->m_id;
   }
   void disable_constraint(int i) { m_constraints[i]->m_enabled = false; }
   void enable_constraint(int i) { m_constraints[i]->m_enabled = true; }
+  void randomize_constraints() {
+    // use the numpy random number generator
+    py::list l = py::extract<py::list>(GetNumPyMod().attr("random").attr("permutation")(m_constraint_ordering).attr("tolist")());
+    for (int i = 0; i < m_constraint_ordering.size(); ++i) {
+      m_constraint_ordering[i] = py::extract<int>(l[i]);
+    }
+  }
 
 private:
   friend class MassSystem;
@@ -207,6 +221,7 @@ private:
   // Constraint data
   int m_next_constraint_id;
   vector<PositionConstraintPtr> m_constraints;
+  vector<int> m_constraint_ordering;
 };
 
 
@@ -229,6 +244,6 @@ int MassSystem::add_distance_constraint(int i_point1, int i_point2, double resti
 
 void MassSystem::disable_constraint(int i) { m_impl->disable_constraint(i); }
 void MassSystem::enable_constraint(int i) { m_impl->enable_constraint(i); }
-
+void MassSystem::randomize_constraints() { m_impl->randomize_constraints(); }
 
 } // namespace tracking

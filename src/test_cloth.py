@@ -30,6 +30,8 @@ class Cloth(object):
 
     self._add_structural_constraints(init_pos)
 
+    self.sys.randomize_constraints()
+
   def _add_structural_constraints(self, init_pos):
     self.distance_constraints = []
     def add_single(i, j):
@@ -69,6 +71,7 @@ def main():
   env = openravepy.Environment()
   viewer = trajoptpy.GetViewer(env)
 
+  np.random.seed(0)
   cloth = Cloth(res_x=10, res_y=15, len_x=.5, len_y=1., init_center=np.array([0, 0, 0]))
 
   # from timeit import Timer

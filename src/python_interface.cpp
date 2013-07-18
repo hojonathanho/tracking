@@ -42,9 +42,16 @@ BOOST_PYTHON_MODULE(trackingpy) {
   py::to_python_converter<NPMatrixd, NPMatrixd::ToPythonConverter>();
   NPMatrixd::FromPythonConverter();
 
+  py::to_python_converter<NPMatrixi, NPMatrixi::ToPythonConverter>();
+  NPMatrixi::FromPythonConverter();
+
   // Converters for Vector3d
   py::to_python_converter<Eigen::Vector3d, EigenMatrixConverters<double, 3, 1, 0, 3, 1>::ToPython>();
   EigenMatrixConverters<double, 3, 1, 0, 3, 1>::FromPython();
+
+
+  py::class_<std::vector<int> >("vector_int")
+    .def(py::vector_indexing_suite<std::vector<int> >());
 
   using tracking::MassSystem;
 
@@ -62,5 +69,6 @@ BOOST_PYTHON_MODULE(trackingpy) {
     .def("add_distance_constraint", &MassSystem::add_distance_constraint)
     .def("enable_constraint", &MassSystem::enable_constraint)
     .def("disable_constraint", &MassSystem::disable_constraint)
+    .def("randomize_constraints", &MassSystem::randomize_constraints)
     ;
 }
