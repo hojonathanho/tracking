@@ -52,6 +52,7 @@ BOOST_PYTHON_MODULE(trackingpy) {
     .def_readwrite_convert("gravity", &MassSystem::SimulationParams::gravity)
     .def_readwrite("dt", &MassSystem::SimulationParams::dt)
     .def_readwrite("solver_iters", &MassSystem::SimulationParams::solver_iters)
+    .def_readwrite("damping", &MassSystem::SimulationParams::damping)
     ;
 
   py::class_<MassSystem>("MassSystem", py::init<const NPMatrixd&, const NPMatrixd&, const MassSystem::SimulationParams&>())

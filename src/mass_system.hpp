@@ -28,6 +28,7 @@ public:
     double dt;
     int solver_iters;
     Eigen::Vector3d gravity;
+    double damping;
   };
 
   MassSystem(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params);
