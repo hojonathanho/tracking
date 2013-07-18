@@ -36,6 +36,7 @@ public:
 
   int add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos);
   int add_distance_constraint(int i_point1, int i_point2, double resting_len);
+  int add_plane_constraint(int i_point, const Eigen::Vector3d& plane_point, const Eigen::Vector3d& plane_normal);
   void disable_constraint(int i);
   void enable_constraint(int i);
   void randomize_constraints();

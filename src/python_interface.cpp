@@ -37,8 +37,20 @@ struct class_with_converter : public py::class_<T, X1, X2, X3> {
   }
 };
 
+void TranslateStdException(const std::exception& e) {
+  PyErr_SetString(PyExc_RuntimeError, e.what());
+}
+void TranslateStdException2(const std::runtime_error& e) {
+  PyErr_SetString(PyExc_RuntimeError, e.what());
+}
 
 BOOST_PYTHON_MODULE(trackingpy) {
+  Py_Initialize();
+  // py::class_<std::exception>("CppException", py::no_init);
+  // py::class_<std::runtime_error>("CppRuntimeError", py::no_init);
+  // py::register_exception_translator<std::exception>(&TranslateStdException);
+  py::register_exception_translator<std::runtime_error>(&TranslateStdException2);
+
   py::to_python_converter<NPMatrixd, NPMatrixd::ToPythonConverter>();
   NPMatrixd::FromPythonConverter();
 
@@ -67,6 +79,7 @@ BOOST_PYTHON_MODULE(trackingpy) {
     .def("get_node_positions", &MassSystem::get_node_positions)
     .def("add_anchor_constraint", &MassSystem::add_anchor_constraint)
     .def("add_distance_constraint", &MassSystem::add_distance_constraint)
+    .def("add_plane_constraint", &MassSystem::add_plane_constraint)
     .def("enable_constraint", &MassSystem::enable_constraint)
     .def("disable_constraint", &MassSystem::disable_constraint)
     .def("randomize_constraints", &MassSystem::randomize_constraints)

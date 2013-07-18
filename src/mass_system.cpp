@@ -177,11 +177,6 @@ public:
           cnt.enforce(m_tmp_x);
         }
       }
-      // for (int c = 0; c < m_constraints.size(); ++c) {
-      //   if (m_constraints[c]->m_enabled) {
-      //     m_constraints[c]->enforce(m_tmp_x);
-      //   }
-      // }
     }
 
     // retroactively set velocities
@@ -240,6 +235,10 @@ int MassSystem::add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos) 
 }
 int MassSystem::add_distance_constraint(int i_point1, int i_point2, double resting_len) {
   return m_impl->add_constraint(boost::make_shared<DistanceConstraint>(i_point1, i_point2, m_impl->m_invm(i_point1), m_impl->m_invm(i_point2), resting_len));
+}
+int MassSystem::add_plane_constraint(int i_point, const Vector3d& plane_point, const Vector3d& plane_normal) {
+  cout << "in add_plane_constraint" << endl;
+  return m_impl->add_constraint(boost::make_shared<PlaneConstraint>(i_point, plane_point, plane_normal));
 }
 
 void MassSystem::disable_constraint(int i) { m_impl->disable_constraint(i); }

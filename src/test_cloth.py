@@ -65,14 +65,37 @@ class Cloth(object):
   def get_distance_constraints(self):
     return self.distance_constraints
 
+def make_table_xml(translation, extents):
+  xml = """
+<Environment>
+<KinBody name="table">
+  <Body type="static" name="table_link">
+    <Geom type="box">
+      <Translation>%f %f %f</Translation>
+      <extents>%f %f %f</extents>
+      <diffuseColor>.96 .87 .70</diffuseColor>
+    </Geom>
+  </Body>
+</KinBody>
+</Environment>
+""" % (translation[0], translation[1], translation[2], extents[0], extents[1], extents[2])
+  return xml
+
 def main():
   import openravepy
   import trajoptpy
   env = openravepy.Environment()
   viewer = trajoptpy.GetViewer(env)
 
+  env.LoadData(make_table_xml(translation=[0, 0, -.05], extents=[1, 1, .05]))
+
   np.random.seed(0)
-  cloth = Cloth(res_x=10, res_y=15, len_x=.5, len_y=1., init_center=np.array([0, 0, 0]))
+  cloth = Cloth(res_x=10, res_y=15, len_x=.5, len_y=1., init_center=np.array([0, 0, .5]))
+
+
+  # add above-table constraints
+  for i in range(cloth.num_nodes):
+    cloth.sys.add_plane_constraint(i, np.array([0, 0, 0]), np.array([0, 0, 1]))
 
   # from timeit import Timer
   # print 'timing'

@@ -44,14 +44,22 @@ public:
 
 
   static NPMatrix Wrap(const py::object &other) {
-    NPMatrix out;
-    out.m_ndarray = other;
+    py::object in = other;
     std::string dtype = py::extract<std::string>(other.attr("dtype").attr("name"));
-    if (dtype != NPMatrixTypes<Scalar>::scalar_npname) {
-      throw std::runtime_error((boost::format("Error converting Python ndarray to Eigen matrix: expected dtype %s, got %s instead")
-        % NPMatrixTypes<Scalar>::scalar_npname % dtype).str());
+    std::string target_dtype(NPMatrixTypes<Scalar>::scalar_npname);
+    if (dtype != target_dtype) {
+      // possible upcasting from int to float
+      if ((target_dtype == "float32" || target_dtype == "float64") && (dtype == "int32" || dtype == "int64")) {
+        in = other.attr("astype")(target_dtype);
+      } else {
+        throw std::runtime_error((boost::format("Error converting Python ndarray to Eigen matrix: expected dtype %s, got %s instead")
+          % NPMatrixTypes<Scalar>::scalar_npname % dtype).str());
+      }
     }
-    py::tuple shape = py::extract<py::tuple>(other.attr("shape"));
+
+    NPMatrix out;
+    out.m_ndarray = in;
+    py::tuple shape = py::extract<py::tuple>(in.attr("shape"));
     switch (py::len(shape)) {
     case 1:
       out.resetMap(py::extract<int>(shape[0]), 1);
@@ -155,9 +163,11 @@ struct EigenMatrixConverters {
     }
     static void construct(PyObject* obj_ptr, py::converter::rvalue_from_python_stage1_data* data) {
       py::object value(py::handle<>(py::borrowed(obj_ptr)));
+      std::cout << "trying to convert" << std::endl;
       void* storage = ((py::converter::rvalue_from_python_storage<MatrixType>*) data)->storage.bytes;
       new (storage) MatrixType(NPMatrix<_Scalar>::Wrap(value));
       data->convertible = storage;
+      std::cout << "ok" << std::endl;
     }
   };
 };
