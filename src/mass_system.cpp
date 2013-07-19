@@ -57,7 +57,7 @@ static inline double rayFromToTriangle(
   if (fabs(den) >= DBL_EPSILON) {
     const double num = rayFrom.dot(n) - d;
     const double t = -num/den;
-    if(t > teps && (t < maxt)) {
+    if(t > teps && t < maxt) {
       const Vector3d hit = rayFrom + rayNormalizedDirection*t;
       if(n.dot((a-hit).cross(b-hit)) > ceps &&
          n.dot((b-hit).cross(c-hit)) > ceps &&
