@@ -27,7 +27,7 @@ def main():
   env.LoadData(make_table_xml(translation=[0, 0, -.05], extents=[1, 1, .05]))
 
   np.random.seed(0)
-  cloth = Cloth(res_x=5, res_y=4, len_x=.5, len_y=1., init_center=np.array([0, 0, .5]))
+  cloth = Cloth(res_x=50, res_y=50, len_x=.5, len_y=1., init_center=np.array([0, 0, .5]))
 
   # anchors for testing
   for i in range(cloth.res_x):
@@ -37,25 +37,27 @@ def main():
   for i in range(cloth.num_nodes):
     cloth.sys.add_plane_constraint(i, np.array([0, 0, 0]), np.array([0, 0, 1]))
 
-  from timeit import Timer
-  print 'timing'
-  num_timing_iters = 1000
-  t = Timer(lambda: cloth.step())
-  result = t.timeit(number=num_timing_iters)
-  print 'iters/sec =', float(num_timing_iters)/result, 'total time =', result
-  raw_input('done timing')
+  # from timeit import Timer
+  # print 'timing'
+  # num_timing_iters = 1000
+  # t = Timer(lambda: cloth.step())
+  # result = t.timeit(number=num_timing_iters)
+  # print 'iters/sec =', float(num_timing_iters)/result, 'total time =', result
+  # raw_input('done timing')
 
   iters = 100000
 
   log = np.empty((iters, cloth.num_nodes, 3))
 
+  constrained_nodes = np.array(cloth.get_distance_constraints())
+
+  print 'cloth made'
   for i in range(iters):
     print i
     cloth.step()
     pos = cloth.get_node_positions()
     handles = [env.plot3(pos, 5)]
-    for node_i, node_j in cloth.get_distance_constraints():
-      handles.append(env.drawlinelist(np.asarray([pos[node_i], pos[node_j]]), 1, [0,1,0]))
+    handles.append(env.drawlinelist(pos[constrained_nodes].reshape((-1, 3)), 1, (0,1,0)))
     viewer.Step()
 
     log[i,:,:] = pos

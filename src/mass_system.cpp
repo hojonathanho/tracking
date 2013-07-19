@@ -69,6 +69,15 @@ static inline double rayFromToTriangle(
   return -1;
 }
 
+static vector<int> randomPermutation(const vector<int>& in) {
+  // use the numpy random number generator
+  vector<int> out(in.size());
+  py::list l = py::extract<py::list>(GetNumPyMod().attr("random").attr("permutation")(in).attr("tolist")());
+  for (int i = 0; i < in.size(); ++i) {
+    out[i] = py::extract<int>(l[i]);
+  }
+  return out;
+}
 
 ////////// Constraint structures //////////
 
@@ -253,13 +262,7 @@ struct MassSystem::Impl {
   }
   void disable_constraint(int i) { m_constraints[i]->m_enabled = false; }
   void enable_constraint(int i) { m_constraints[i]->m_enabled = true; }
-  void randomize_constraints() {
-    // use the numpy random number generator
-    py::list l = py::extract<py::list>(GetNumPyMod().attr("random").attr("permutation")(m_constraint_ordering).attr("tolist")());
-    for (int i = 0; i < m_constraint_ordering.size(); ++i) {
-      m_constraint_ordering[i] = py::extract<int>(l[i]);
-    }
-  }
+  void randomize_constraints() { m_constraint_ordering = randomPermutation(m_constraint_ordering); }
 
 
   ///// Triangles/faces methods /////
@@ -300,6 +303,7 @@ struct MassSystem::Impl {
     }
   }
 
+  // returns the index of the nearest triangle collided, or -1 if no collisions
   int triangle_ray_test(const Vector3d &ray_from, const Vector3d &ray_to) const {
     if (m_tri_dbvt.empty()) {
       throw std::runtime_error("Ray test requested, but no triangles declared");
@@ -313,7 +317,8 @@ struct MassSystem::Impl {
       vector<Result> m_results;
 
       Collider(const Impl* impl, const Vector3d& ray_from, const Vector3d& ray_to)
-      : m_impl(impl), m_ray_from(ray_from), m_ray_to(ray_to), m_ray_normalized_dir((ray_to - ray_from).normalized())//, m_i_tri_collided(-1)
+        : m_impl(impl), m_ray_from(ray_from), m_ray_to(ray_to),
+          m_ray_normalized_dir((ray_to - ray_from).normalized())
       { }
 
       void Process(const btDbvtNode* leaf) {
@@ -332,17 +337,34 @@ struct MassSystem::Impl {
         }
       }
 
+      struct ResultCmp {
+        bool operator()(const Result &r1, const Result &r2) const { return r1.dist < r2.dist; }
+      };
+      void SortResults() {
+        std::sort(m_results.begin(), m_results.end(), ResultCmp());
+      }
+
     } collider(this, ray_from, ray_to);
 
     btDbvt::rayTest(m_tri_dbvt.m_root, toBtVector3(ray_from), toBtVector3(ray_to), collider);
+    collider.SortResults();
     cout << "ray test got " << collider.m_results.size() << " intersections" << endl;
     return collider.m_results.empty() ? -1 : collider.m_results[0].i_tri;
+  }
+
+  int triangle_ray_test_against_single_node(int i_node, const Vector3d& ray_from) const {
+    int i_tri_collided = triangle_ray_test(ray_from, m_x.row(i_node));
+    // ignore collision if collided triangle contains the node as one of its vertices
+    if (i_tri_collided == -1 || m_triangles.row(i_tri_collided).cwiseEqual(i_node).any()) {
+      return -1;
+    }
+    return i_tri_collided;
   }
 
   vector<int> triangle_ray_test_against_nodes(const Vector3d &ray_from) const {
     vector<int> out(m_num_nodes);
     for (int i = 0; i < m_num_nodes; ++i) {
-      out[i] = triangle_ray_test(ray_from, m_x.row(i));
+      out[i] = triangle_ray_test_against_single_node(i, ray_from);
     }
     return out;
   }

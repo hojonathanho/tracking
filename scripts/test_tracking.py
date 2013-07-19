@@ -129,10 +129,10 @@ def main():
 
     # on the first frame, create cloth and table
     if i_frame == 0:
-      # on the first farme
       table_height = xyz[:,2].mean() - .01
       env.LoadData(make_table_xml(translation=[0, 0, table_height-.05], extents=[1, 1, .05]))
 
+      # calculate cloth dims, assuming laid out in x-y plane with no rotation
       cutoff_ind = int(len(xyz) * .01)
       argsort_x, argsort_y = xyz[:,0].argsort(), xyz[:,1].argsort()
       len_x = xyz[argsort_x[len(xyz)-cutoff_ind-1],0] - xyz[argsort_x[cutoff_ind],0]

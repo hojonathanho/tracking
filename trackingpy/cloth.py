@@ -17,7 +17,7 @@ class Cloth(object):
     # create mass-spring system
     sim_params = trackingpy.SimulationParams()
     sim_params.dt = .01
-    sim_params.solver_iters = 2
+    sim_params.solver_iters = 20
     sim_params.gravity = np.array([0, 0, -9.8])
     sim_params.damping = 1
 
@@ -60,7 +60,6 @@ class Cloth(object):
         self.triangles[curr+1,:] = [self._xy_to_i(x+1,y), self._xy_to_i(x+1,y+1), self._xy_to_i(x,y+1)]
         curr += 2
     assert curr == num_triangles
-    print 'triangles from python:\n', self.triangles
     self.sys.declare_triangles(self.triangles)
 
   def _i_to_xy(self, i): return i % self.res_x, i // self.res_x
@@ -74,4 +73,3 @@ class Cloth(object):
 
   def get_distance_constraints(self):
     return self.distance_constraints
-
