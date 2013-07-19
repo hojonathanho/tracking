@@ -23,23 +23,28 @@ class NPMatrix : public NPMatrixTypes<Scalar>::MapType {
 public:
   typedef typename NPMatrixTypes<Scalar>::MapType Base;
 
-  NPMatrix() : Base(NULL, 0, 0) { }
+  NPMatrix() : m_initialized(false), Base(NULL, 0, 0) { }
 
-  NPMatrix(int rows, int cols) : Base(NULL, 0, 0) {
+  NPMatrix(int rows, int cols) : m_initialized(false), Base(NULL, 0, 0) {
     resize(rows, cols);
+    assert(m_initialized);
   }
 
-  NPMatrix(const NPMatrix& other) : Base(NULL, 0, 0) {
+  NPMatrix(const NPMatrix& other) : m_initialized(false), Base(NULL, 0, 0) {
+    assert(other.initialized());
     operator=(other);
+    assert(m_initialized);
   }
 
   template<typename OtherDerived>
-  NPMatrix(const Eigen::MatrixBase<OtherDerived>& other) : Base(NULL, 0, 0) {
+  NPMatrix(const Eigen::MatrixBase<OtherDerived>& other) : m_initialized(false), Base(NULL, 0, 0) {
     operator=(other);
+    assert(m_initialized);
   }
 
-  NPMatrix(const py::object &other) : Base(NULL, 0, 0) {
+  NPMatrix(const py::object &other) : m_initialized(false), Base(NULL, 0, 0) {
     operator=(Wrap(other));
+    assert(m_initialized);
   }
 
 
@@ -62,14 +67,15 @@ public:
     py::tuple shape = py::extract<py::tuple>(in.attr("shape"));
     switch (py::len(shape)) {
     case 1:
-      out.resetMap(py::extract<int>(shape[0]), 1);
+      out.resetMap(getNdarrayPointer(out.m_ndarray), py::extract<int>(shape[0]), 1);
       break;
     case 2:
-      out.resetMap(py::extract<int>(shape[0]), py::extract<int>(shape[1]));
+      out.resetMap(getNdarrayPointer(out.m_ndarray), py::extract<int>(shape[0]), py::extract<int>(shape[1]));
       break;
     default:
       throw std::runtime_error("ndarray must have rank 1 or 2");
     }
+    assert(out.initialized());
     return out;
   }
 
@@ -78,10 +84,12 @@ public:
   void resize(int rows, int cols) {
     if (rows == this->rows() && cols == this->cols()) return;
     m_ndarray = makeNdarray(rows, cols);
-    resetMap(rows, cols);
+    resetMap(getNdarrayPointer(m_ndarray), rows, cols);
+    assert(m_initialized);
   }
 
   NPMatrix& operator=(const NPMatrix& other) {
+    assert(other.initialized());
     resize(other.rows(), other.cols());
     Base::operator=(other);
     return *this;
@@ -99,6 +107,7 @@ public:
   }
 
   const py::object &ndarray() const { return m_ndarray; }
+  bool initialized() const { return m_initialized; }
 
 
   // Boost Python converters
@@ -125,12 +134,15 @@ public:
 
 private:
   py::object m_ndarray;
+  bool m_initialized; // true if the underlying Eigen Map's pointer points to something non-null
 
-  void resetMap(int rows, int cols) {
-    new (this) Base(getNdarrayPointer(m_ndarray), rows, cols);
+  void resetMap(Scalar* storage, int rows, int cols) {
+    new (this) Base(storage, rows, cols);
+    m_initialized = storage != NULL;
   }
 
   static py::object makeNdarray(int rows, int cols) {
+    std::cout << "making nparray with type " << NPMatrixTypes<Scalar>::scalar_npname << " and sizeof int is " << sizeof(int) << std::endl;
     return GetNumPyMod().attr("zeros")(py::make_tuple(rows, cols), NPMatrixTypes<Scalar>::scalar_npname, "C");
   }
 
@@ -144,15 +156,19 @@ typedef NPMatrix<float> NPMatrixf;
 typedef NPMatrix<double> NPMatrixd;
 
 
+// Utility Boost Python converters for general Eigen matrices
+// these converters make copies in both directions (C++ <--> Python)
 template<typename _Scalar, int _Rows, int _Cols, int _Options, int _MaxRows, int _MaxCols>
 struct EigenMatrixConverters {
   typedef Eigen::Matrix<_Scalar, _Rows, _Cols, _Options, _MaxRows, _MaxCols> MatrixType;
-  // Boost Python converters
+
   struct ToPython {
     static PyObject* convert(const MatrixType& m) {
       return py::incref(NPMatrix<_Scalar>(m).ndarray().ptr());
     }
   };
+
+
   struct FromPython {
     FromPython() {
       py::converter::registry::push_back(&convertible, &construct, py::type_id<MatrixType>());
@@ -163,11 +179,9 @@ struct EigenMatrixConverters {
     }
     static void construct(PyObject* obj_ptr, py::converter::rvalue_from_python_stage1_data* data) {
       py::object value(py::handle<>(py::borrowed(obj_ptr)));
-      std::cout << "trying to convert" << std::endl;
       void* storage = ((py::converter::rvalue_from_python_storage<MatrixType>*) data)->storage.bytes;
       new (storage) MatrixType(NPMatrix<_Scalar>::Wrap(value));
       data->convertible = storage;
-      std::cout << "ok" << std::endl;
     }
   };
 };

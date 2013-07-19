@@ -37,20 +37,8 @@ struct class_with_converter : public py::class_<T, X1, X2, X3> {
   }
 };
 
-void TranslateStdException(const std::exception& e) {
-  PyErr_SetString(PyExc_RuntimeError, e.what());
-}
-void TranslateStdException2(const std::runtime_error& e) {
-  PyErr_SetString(PyExc_RuntimeError, e.what());
-}
 
-BOOST_PYTHON_MODULE(trackingpy) {
-  Py_Initialize();
-  // py::class_<std::exception>("CppException", py::no_init);
-  // py::class_<std::runtime_error>("CppRuntimeError", py::no_init);
-  // py::register_exception_translator<std::exception>(&TranslateStdException);
-  py::register_exception_translator<std::runtime_error>(&TranslateStdException2);
-
+BOOST_PYTHON_MODULE(ctrackingpy) {
   py::to_python_converter<NPMatrixd, NPMatrixd::ToPythonConverter>();
   NPMatrixd::FromPythonConverter();
 
@@ -61,9 +49,9 @@ BOOST_PYTHON_MODULE(trackingpy) {
   py::to_python_converter<Eigen::Vector3d, EigenMatrixConverters<double, 3, 1, 0, 3, 1>::ToPython>();
   EigenMatrixConverters<double, 3, 1, 0, 3, 1>::FromPython();
 
-
   py::class_<std::vector<int> >("vector_int")
     .def(py::vector_indexing_suite<std::vector<int> >());
+
 
   using tracking::MassSystem;
 
@@ -77,6 +65,11 @@ BOOST_PYTHON_MODULE(trackingpy) {
   py::class_<MassSystem>("MassSystem", py::init<const NPMatrixd&, const NPMatrixd&, const MassSystem::SimulationParams&>())
     .def("step", &MassSystem::step)
     .def("get_node_positions", &MassSystem::get_node_positions)
+
+    .def("declare_triangles", &MassSystem::declare_triangles)
+    .def("triangle_ray_test", &MassSystem::triangle_ray_test)
+    .def("triangle_ray_test_against_nodes", &MassSystem::triangle_ray_test_against_nodes)
+
     .def("add_anchor_constraint", &MassSystem::add_anchor_constraint)
     .def("add_distance_constraint", &MassSystem::add_distance_constraint)
     .def("add_plane_constraint", &MassSystem::add_plane_constraint)

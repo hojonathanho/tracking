@@ -19,7 +19,7 @@ int main() {
 
 
 
-  NPMatrixd m(rows, cols);
+  NPMatrixi m(rows, cols);
   cout << "Initial matrix (uninitialized memory)\n" << m << '\n' << endl;
 
   cout << "Testing setting from Python/NumPy (entries should be 0, 1, 2, ... row-wise):\n";
@@ -35,7 +35,7 @@ int main() {
   m = -m;
   for (int i = 0; i < rows; ++i) {
     for (int j = 0; j < cols; ++j) {
-      cout << boost::python::extract<double>(m.ndarray()[i][j]) << ' ';
+      cout << boost::python::extract<int>(m.ndarray()[i][j]) << ' ';
     }
     cout << '\n';
   }
