@@ -15,6 +15,9 @@ public:
     int solver_iters;
     Eigen::Vector3d gravity;
     double damping;
+
+    double stretching_stiffness;
+    double bending_stiffness;
   };
 
   MassSystem(const NPMatrixd& init_x, const NPMatrixd& m, const SimulationParams& sim_params);
@@ -28,8 +31,9 @@ public:
 
   // Adds constraints and returns constraint ids
   int add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos);
-  int add_distance_constraint(int i_point1, int i_point2, double resting_len);
   int add_plane_constraint(int i_point, const Eigen::Vector3d& plane_point, const Eigen::Vector3d& plane_normal);
+  int add_distance_constraint(int i_point1, int i_point2, double resting_len);
+  int add_bending_constraint(int i1, int i2, int i3, int i4, double resting_angle);
   // Enable or disable constraints. Pass in the id returned by the add_ method.
   void disable_constraint(int i);
   void enable_constraint(int i);

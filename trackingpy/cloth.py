@@ -20,6 +20,8 @@ class Cloth(object):
     sim_params.solver_iters = 10
     sim_params.gravity = np.array([0, 0, -1.])
     sim_params.damping = 1
+    sim_params.stretching_stiffness = 1
+    sim_params.bending_stiffness = 1
 
     self.sys = trackingpy.MassSystem(self.init_pos, masses, sim_params)
 

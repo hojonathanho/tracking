@@ -82,7 +82,7 @@ static vector<int> randomPermutation(const vector<int>& in) {
 ////////// Constraint structures //////////
 
 struct PositionConstraint {
-  enum Type { ANCHOR=0, DISTANCE, PLANE };
+  enum Type { ANCHOR=0, PLANE, DISTANCE, BENDING };
   int m_id;
   bool m_enabled;
   virtual Type getType() const = 0;
@@ -99,29 +99,6 @@ struct AnchorConstraint : public PositionConstraint {
 
   virtual void enforce(NPMatrixd& x) {
     x.row(m_i_point) = m_anchor_pos;
-  }
-};
-
-struct DistanceConstraint : public PositionConstraint {
-  int m_i_point1, m_i_point2;
-  double m_resting_len;
-  bool m_active;
-  double m_invm_ratio;
-
-  DistanceConstraint(int i_point1, int i_point2, double invm_point1, double invm_point2, double resting_len) :
-    m_i_point1(i_point1), m_i_point2(i_point2), m_resting_len(resting_len),
-    m_active(invm_point1 != 0 || invm_point2 != 0),
-    m_invm_ratio(invm_point1 / (invm_point1 + invm_point2))
-  { }
-
-  virtual Type getType() const { return DISTANCE; }
-
-  virtual void enforce(NPMatrixd& x) {
-    if (!m_active) return;
-    Vector3d dir = x.row(m_i_point1) - x.row(m_i_point2);
-    dir *= (1. - m_resting_len/dir.norm());
-    x.row(m_i_point1) += -m_invm_ratio * dir;
-    x.row(m_i_point2) += (1. - m_invm_ratio) * dir;
   }
 };
 
@@ -143,7 +120,71 @@ struct PlaneConstraint : public PositionConstraint {
   }
 };
 
+struct DistanceConstraint : public PositionConstraint {
+  int m_i_point1, m_i_point2;
+  double m_resting_len;
+  bool m_active;
+  double m_invm_ratio;
+  double m_stiffness;
 
+  DistanceConstraint(int i_point1, int i_point2, double invm_point1, double invm_point2, double resting_len, double stiffness) :
+    m_i_point1(i_point1), m_i_point2(i_point2), m_resting_len(resting_len),
+    m_active(invm_point1 != 0 || invm_point2 != 0),
+    m_invm_ratio(invm_point1 / (invm_point1 + invm_point2)),
+    m_stiffness(stiffness)
+  { }
+
+  virtual Type getType() const { return DISTANCE; }
+
+  virtual void enforce(NPMatrixd& x) {
+    if (!m_active) return;
+    Vector3d dir = x.row(m_i_point1) - x.row(m_i_point2);
+    dir *= (1. - m_resting_len/dir.norm());
+    x.row(m_i_point1) += -m_stiffness * m_invm_ratio * dir;
+    x.row(m_i_point2) += m_stiffness * (1. - m_invm_ratio) * dir;
+  }
+};
+
+struct BendingConstraint : public PositionConstraint {
+  vector<int> m_i_point;
+  vector<double> m_invm;
+  double m_resting_angle;
+  double m_stiffness;
+
+  BendingConstraint(const vector<int>& i_point, const vector<double>& invm, double resting_angle, double stiffness)
+      : m_i_point(i_point), m_invm(invm), m_resting_angle(resting_angle), m_stiffness(stiffness) {
+    assert(i_point.size() == 4);
+    assert(invm.size() == 4);
+  }
+
+  virtual Type getType() const { return BENDING; }
+
+  virtual void enforce(NPMatrixd& x) {
+    Vector3d p2 = x.row(m_i_point[1]) - x.row(m_i_point[0]);
+    Vector3d p3 = x.row(m_i_point[2]) - x.row(m_i_point[0]);
+    Vector3d p4 = x.row(m_i_point[3]) - x.row(m_i_point[0]);
+
+    Vector3d n1 = p2.cross(p3); double norm23 = n1.norm(); n1 /= norm23;
+    Vector3d n2 = p2.cross(p4); double norm24 = n2.norm(); n2 /= norm24;
+    double d = n1.dot(n2);
+
+    Eigen::Matrix<double, 4, 3> q;
+    q.row(2) = (p2.cross(n2) + n1.cross(p2)*d)/norm23;
+    q.row(3) = (p2.cross(n1) + n2.cross(p2)*d)/norm24;
+    q.row(1) = -(p3.cross(n2) + n1.cross(p3)*d)/norm23 - (p4.cross(n1) + n2.cross(p4)*d)/norm24;
+    q.row(0) = -q.row(1) - q.row(2) - q.row(3);
+
+    double denom = 0;
+    for (int i = 0; i < 4; ++i) {
+      denom += m_invm[i] * q.row(i).squaredNorm();
+    }
+    double z = -m_stiffness * sqrt(1. - d*d) * (acos(d) - m_resting_angle) / denom;
+
+    for (int i = 0; i < 4; ++i) {
+      x.row(m_i_point[i]) += z * m_invm[i] * q.row(i);
+    }
+  }
+};
 
 
 ////////// Position-based dynamics implementation //////////
@@ -182,6 +223,12 @@ struct MassSystem::Impl {
     // if (m_sim_params.damping < 0 || m_sim_params.damping > 1) {
     //   throw std::runtime_error("damping must be in [0, 1]");
     // }
+    if (m_sim_params.stretching_stiffness < 0 || m_sim_params.stretching_stiffness > 1) {
+      throw std::runtime_error("stretching_stiffness must be in [0, 1]");
+    }
+    if (m_sim_params.bending_stiffness < 0 || m_sim_params.bending_stiffness > 1) {
+      throw std::runtime_error("bending_stiffness must be in [0, 1]");
+    }
   }
 
 
@@ -376,6 +423,11 @@ struct MassSystem::Impl {
   }
 
 
+  double calc_stiffness_factor(double k) const {
+    return 1. - pow(1. - k, 1. / m_sim_params.solver_iters);
+  }
+
+
   SimulationParams m_sim_params;
 
   // State of masses
@@ -415,10 +467,19 @@ int MassSystem::add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos) 
   return m_impl->add_constraint(boost::make_shared<AnchorConstraint>(i_point, anchor_pos));
 }
 int MassSystem::add_distance_constraint(int i_point1, int i_point2, double resting_len) {
-  return m_impl->add_constraint(boost::make_shared<DistanceConstraint>(i_point1, i_point2, m_impl->m_invm(i_point1), m_impl->m_invm(i_point2), resting_len));
+  double s = m_impl->calc_stiffness_factor(m_impl->m_sim_params.stretching_stiffness);
+  return m_impl->add_constraint(boost::make_shared<DistanceConstraint>(i_point1, i_point2, m_impl->m_invm(i_point1), m_impl->m_invm(i_point2), resting_len, s));
 }
 int MassSystem::add_plane_constraint(int i_point, const Vector3d& plane_point, const Vector3d& plane_normal) {
   return m_impl->add_constraint(boost::make_shared<PlaneConstraint>(i_point, plane_point, plane_normal));
+}
+int MassSystem::add_bending_constraint(int i1, int i2, int i3, int i4, double resting_angle) {
+  vector<int> i_point(4);
+  i_point[0] = i1; i_point[1] = i2; i_point[2] = i3; i_point[3] = i4;
+  vector<double> invm(4);
+  invm[0] = m_impl->m_invm(i1); invm[1] = m_impl->m_invm(i2); invm[2] = m_impl->m_invm(i3); invm[3] = m_impl->m_invm(i4);
+  double stiffness = m_impl->calc_stiffness_factor(m_impl->m_sim_params.bending_stiffness);
+  return m_impl->add_constraint(boost::make_shared<BendingConstraint>(i_point, invm, resting_angle, stiffness));
 }
 
 void MassSystem::disable_constraint(int i) { m_impl->disable_constraint(i); }

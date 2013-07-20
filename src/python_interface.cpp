@@ -60,6 +60,8 @@ BOOST_PYTHON_MODULE(ctrackingpy) {
     .def_readwrite("dt", &MassSystem::SimulationParams::dt)
     .def_readwrite("solver_iters", &MassSystem::SimulationParams::solver_iters)
     .def_readwrite("damping", &MassSystem::SimulationParams::damping)
+    .def_readwrite("stretching_stiffness", &MassSystem::SimulationParams::stretching_stiffness)
+    .def_readwrite("bending_stiffness", &MassSystem::SimulationParams::bending_stiffness)
     ;
 
   py::class_<MassSystem>("MassSystem", py::init<const NPMatrixd&, const NPMatrixd&, const MassSystem::SimulationParams&>())
@@ -73,8 +75,9 @@ BOOST_PYTHON_MODULE(ctrackingpy) {
     .def("triangle_ray_test_against_nodes", &MassSystem::triangle_ray_test_against_nodes)
 
     .def("add_anchor_constraint", &MassSystem::add_anchor_constraint)
-    .def("add_distance_constraint", &MassSystem::add_distance_constraint)
     .def("add_plane_constraint", &MassSystem::add_plane_constraint)
+    .def("add_distance_constraint", &MassSystem::add_distance_constraint)
+    .def("add_bending_constraint", &MassSystem::add_bending_constraint)
     .def("enable_constraint", &MassSystem::enable_constraint)
     .def("disable_constraint", &MassSystem::disable_constraint)
     .def("randomize_constraints", &MassSystem::randomize_constraints)
