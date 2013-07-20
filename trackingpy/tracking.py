@@ -15,7 +15,7 @@ def mvn_densities(x_nd, m_kd, cov_dd):
   diffs.shape = (-1, 3)
 
   out = np.exp(-.5 * (diffs.dot(cov_inv.T) * diffs).sum(axis=-1))
-  out *= np.sqrt(np.power(2.*np.pi, d) * cov_det)
+  out /= np.sqrt(np.power(2.*np.pi, d) * cov_det)
   out.shape = (n, k)
 
   return out

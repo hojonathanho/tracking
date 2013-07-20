@@ -142,7 +142,6 @@ private:
   }
 
   static py::object makeNdarray(int rows, int cols) {
-    std::cout << "making nparray with type " << NPMatrixTypes<Scalar>::scalar_npname << " and sizeof int is " << sizeof(int) << std::endl;
     return GetNumPyMod().attr("zeros")(py::make_tuple(rows, cols), NPMatrixTypes<Scalar>::scalar_npname, "C");
   }
 

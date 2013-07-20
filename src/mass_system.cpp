@@ -179,9 +179,9 @@ struct MassSystem::Impl {
     m_f.setZero();
 
     m_sim_params = sim_params;
-    if (m_sim_params.damping < 0 || m_sim_params.damping > 1) {
-      throw std::runtime_error("damping must be in [0, 1]");
-    }
+    // if (m_sim_params.damping < 0 || m_sim_params.damping > 1) {
+    //   throw std::runtime_error("damping must be in [0, 1]");
+    // }
   }
 
 
@@ -221,10 +221,11 @@ struct MassSystem::Impl {
 
   void step() {
     // velocity step
+    m_f += -m_sim_params.damping * m_v;
     for (int i = 0; i < m_num_nodes; ++i) {
       m_v.row(i) += m_sim_params.dt * m_invm(i) * (m_sim_params.gravity.transpose() + m_f.row(i));
     }
-    apply_damping();
+    // apply_damping();
 
     // position step, ignoring constraints
     m_tmp_x = m_x + m_sim_params.dt*m_v;
@@ -357,6 +358,7 @@ struct MassSystem::Impl {
   }
 
   int triangle_ray_test_against_single_node(int i_node, const Vector3d& ray_from) const {
+    // TODO: check that the collided triangle is in front of the node
     int i_tri_collided = triangle_ray_test(ray_from, m_x.row(i_node));
     // ignore collision if collided triangle contains the node as one of its vertices
     if (i_tri_collided == -1 || m_triangles.row(i_tri_collided).cwiseEqual(i_node).any()) {
