@@ -1,6 +1,7 @@
 import numpy as np
 import trackingpy
 from trackingpy.cloth import Cloth
+from trackingpy import tracking
 
 import openravepy, trajoptpy, cloudprocpy
 
@@ -99,7 +100,14 @@ def draw_ax(T, size, env, handles):
     handles.append(env.drawarrow(p0, p0+yax, width, [0,1,0]))
     handles.append(env.drawarrow(p0, p0+zax, width, [0,0,1]))
 
+
 def main():
+  pnoise = .05
+  pinvisible = .1
+  sigma = np.diag((.01, .01, .01))
+  force_lambda = 1000
+
+
   env = openravepy.Environment()
   viewer = trajoptpy.GetViewer(env)
 
@@ -117,73 +125,98 @@ def main():
 
   num_frames = len(rgbs)
   for i_frame in range(0, num_frames, skip):
+    # Read point cloud
     print 'Processing frame %d/%d' % (i_frame+1, num_frames)
     rgb, depth = rgbs[i_frame], depths[i_frame]
     # XYZ_k = clouds.depth_to_xyz(depth, berkeley_pr2.f)
     # XYZ_w = XYZ_k.dot(T_w_k[:3,:3].T) + T_w_k[:3,3][None,None,:]
     # handle = Globals.env.plot3(XYZ_w.reshape(-1,3), 2, rgb.reshape(-1,3)[:,::-1]/255.)
-    xyz = extract_red(rgb, depth, T_w_k)
-    handles = []
-    handles.append(env.plot3(xyz, 2, (1,0,0)))
-    draw_ax(T_w_k, .1, env, handles)
+    cloud_xyz = extract_red(rgb, depth, T_w_k)
 
-    # on the first frame, create cloth and table
+    # Initialization: on the first frame, create cloth and table
     if i_frame == 0:
-      table_height = xyz[:,2].mean() - .01
+      table_height = cloud_xyz[:,2].mean() - .01
       env.LoadData(make_table_xml(translation=[0, 0, table_height-.05], extents=[1, 1, .05]))
 
       # calculate cloth dims, assuming laid out in x-y plane with no rotation
-      cutoff_ind = int(len(xyz) * .01)
-      argsort_x, argsort_y = xyz[:,0].argsort(), xyz[:,1].argsort()
-      len_x = xyz[argsort_x[len(xyz)-cutoff_ind-1],0] - xyz[argsort_x[cutoff_ind],0]
-      len_y = xyz[argsort_y[len(xyz)-cutoff_ind-1],1] - xyz[argsort_y[cutoff_ind],1]
+      cutoff_ind = int(len(cloud_xyz) * .01)
+      argsort_x, argsort_y = cloud_xyz[:,0].argsort(), cloud_xyz[:,1].argsort()
+      len_x = cloud_xyz[argsort_x[len(cloud_xyz)-cutoff_ind-1],0] - cloud_xyz[argsort_x[cutoff_ind],0]
+      len_y = cloud_xyz[argsort_y[len(cloud_xyz)-cutoff_ind-1],1] - cloud_xyz[argsort_y[cutoff_ind],1]
 
-      cloth = Cloth(res_x=10, res_y=15, len_x=len_x, len_y=len_y, init_center=xyz.mean(axis=0)+[0,0,.01])
+      cloth = Cloth(res_x=10, res_y=15, len_x=len_x, len_y=len_y, init_center=cloud_xyz.mean(axis=0)+[0,0,.01])
       # add above-table constraints
       for i in range(cloth.num_nodes):
         cloth.sys.add_plane_constraint(i, np.array([0, 0, table_height]), np.array([0, 0, 1]))
       cloth_colors = np.zeros((cloth.num_nodes, 3))
 
-    cloth.step()
-  
-    visible = np.asarray(cloth.sys.triangle_ray_test_against_nodes(T_w_k[:3,3])) == -1
-    print visible, np.count_nonzero(visible)
+    for em_iter in range(10):
+      print 'EM iteration', em_iter
+      # Calculate visibility
+      is_visible = np.asarray(cloth.sys.triangle_ray_test_against_nodes(T_w_k[:3,3])) == -1
+      # TODO: check if depth image contains a point significantly in front of the model node
+      #print 'visibility', is_visible, np.count_nonzero(is_visible)
+      visibility = np.empty_like(is_visible); visibility[:] = pinvisible
+      visibility[is_visible] = 1.
+
+      # E-step: calculate expected correspondences
+      model_xyz = cloth.get_node_positions()
+      assert len(visibility) == len(model_xyz)
+      densities_NK = tracking.mvn_densities(cloud_xyz, model_xyz, sigma)
+
+      alpha_NK = densities_NK * visibility[None,:]
+      denoms = alpha_NK.sum(axis=1) + pnoise
+      alpha_NK /= denoms[:,None]
+
+      # M-step: calculate forces
+      force_kd = force_lambda * (alpha_NK[:,:,None] * (cloud_xyz[:,None,:] - model_xyz[None,:,:])).sum(axis=0)
+      print force_kd
+      cloth.sys.apply_forces(force_kd)
+
+      cloth.step()
+
+    # Plotting
+    handles = []
+    handles.append(env.plot3(cloud_xyz, 2, (1,0,0)))
+    draw_ax(T_w_k, .1, env, handles)
 
     cloth_colors[:,:] = [0,0,1]
-    cloth_colors[visible,:] = [1,1,1]
-    handles.append(env.plot3(cloth.get_node_positions(), 5, cloth_colors))
+    cloth_colors[is_visible,:] = [1,1,1]
+    pos = cloth.get_node_positions()
+    handles.append(env.plot3(pos, 10, cloth_colors))
+
+    for i in range(cloth.num_nodes):
+      handles.append(env.drawarrow(pos[i], pos[i]+.05*(force_kd[i]/np.linalg.norm(force_kd[i])), .0005))
 
     viewer.Idle()
 
 
-  raw_input('asdfasdfasdf')
-  return
+  # raw_input('asdfasdfasdf')
+  # return
 
-  make_cloth_from_cloud(xyz)
+  # make_cloth_from_cloud(xyz)
 
-  num_frames = len(rgbs)
-  for i_frame in range(num_frames):
-    rgb, depth = rgbs[i], depths[i]
+  # num_frames = len(rgbs)
+  # for i_frame in range(num_frames):
+  #   rgb, depth = rgbs[i], depths[i]
 
-  while True:
-    # rgb, depth = grabber.getRGBD()
-    # xyz = extract_red(rgb, depth)
+  # while True:
+  #   # rgb, depth = grabber.getRGBD()
+  #   # xyz = extract_red(rgb, depth)
 
-    h = None
-    if len(xyz) > 0:
-
-
-
-      T_w_k = make_cloth_from_cloud(xyz)
-      print T_w_k
-      xyz = xyz.dot(T_w_k[:3,:3].T) + T_w_k[:3,3][None,:]
+  #   h = None
+  #   if len(xyz) > 0:
 
 
 
-      h = env.plot3(xyz, 5)
-    viewer.Step()
+  #     T_w_k = make_cloth_from_cloud(xyz)
+  #     print T_w_k
+  #     xyz = xyz.dot(T_w_k[:3,:3].T) + T_w_k[:3,3][None,:]
 
 
+
+  #     h = env.plot3(xyz, 5)
+  #   viewer.Step()
 
 
 
@@ -193,26 +226,28 @@ def main():
 
 
 
-  np.random.seed(0)
-  cloth = Cloth(res_x=10, res_y=15, len_x=.5, len_y=1., init_center=np.array([0, 0, 0]))
-  # add above-table constraints
-  for i in range(cloth.num_nodes):
-    cloth.sys.add_plane_constraint(i, np.array([0, 0, 0]), np.array([0, 0, 1]))
-
-  i = 0
-  while True:
-    print i
-    cloth.step()
-    pos = cloth.get_node_positions()
-    handles = [env.plot3(pos, 5)]
-    for node_i, node_j in cloth.get_distance_constraints():
-      handles.append(env.drawlinelist(np.asarray([pos[node_i], pos[node_j]]), 1, (0,1,0)))
-    viewer.Step()
-    i += 1
 
 
+  # np.random.seed(0)
+  # cloth = Cloth(res_x=10, res_y=15, len_x=.5, len_y=1., init_center=np.array([0, 0, 0]))
+  # # add above-table constraints
+  # for i in range(cloth.num_nodes):
+  #   cloth.sys.add_plane_constraint(i, np.array([0, 0, 0]), np.array([0, 0, 1]))
 
-  h5.close()
+  # i = 0
+  # while True:
+  #   print i
+  #   cloth.step()
+  #   pos = cloth.get_node_positions()
+  #   handles = [env.plot3(pos, 5)]
+  #   for node_i, node_j in cloth.get_distance_constraints():
+  #     handles.append(env.drawlinelist(np.asarray([pos[node_i], pos[node_j]]), 1, (0,1,0)))
+  #   viewer.Step()
+  #   i += 1
+
+
+
+  # h5.close()
 
 if __name__ == '__main__':
   main()

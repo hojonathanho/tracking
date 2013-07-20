@@ -17,8 +17,8 @@ class Cloth(object):
     # create mass-spring system
     sim_params = trackingpy.SimulationParams()
     sim_params.dt = .01
-    sim_params.solver_iters = 20
-    sim_params.gravity = np.array([0, 0, -9.8])
+    sim_params.solver_iters = 10
+    sim_params.gravity = np.array([0, 0, -1.])
     sim_params.damping = 1
 
     self.sys = trackingpy.MassSystem(self.init_pos, masses, sim_params)

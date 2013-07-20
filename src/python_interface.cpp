@@ -63,6 +63,8 @@ BOOST_PYTHON_MODULE(ctrackingpy) {
     ;
 
   py::class_<MassSystem>("MassSystem", py::init<const NPMatrixd&, const NPMatrixd&, const MassSystem::SimulationParams&>())
+
+    .def("apply_forces", &MassSystem::apply_forces)
     .def("step", &MassSystem::step)
     .def("get_node_positions", &MassSystem::get_node_positions)
 

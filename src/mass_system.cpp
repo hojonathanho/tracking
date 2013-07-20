@@ -247,9 +247,14 @@ struct MassSystem::Impl {
 
     // update acceleration structures
     update_accel();
+
+    // cleanup
+    m_f.setZero();
   }
 
-
+  void apply_forces(const NPMatrixd& f) {
+    m_f += f;
+  }
 
   ///// Constraint methods /////
 
@@ -348,7 +353,6 @@ struct MassSystem::Impl {
 
     btDbvt::rayTest(m_tri_dbvt.m_root, toBtVector3(ray_from), toBtVector3(ray_to), collider);
     collider.SortResults();
-    cout << "ray test got " << collider.m_results.size() << " intersections" << endl;
     return collider.m_results.empty() ? -1 : collider.m_results[0].i_tri;
   }
 
@@ -396,6 +400,7 @@ MassSystem::MassSystem(const NPMatrixd& init_x, const NPMatrixd& m, const Simula
   : m_impl(new Impl(init_x, m, sim_params)) { }
 MassSystem::~MassSystem() { delete m_impl; }
 
+void MassSystem::apply_forces(const NPMatrixd& f) { m_impl->apply_forces(f); }
 void MassSystem::step() { m_impl->step(); }
 py::object MassSystem::get_node_positions() const { return m_impl->m_x.ndarray(); }
 

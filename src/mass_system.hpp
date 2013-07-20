@@ -36,6 +36,8 @@ public:
   // Call this after adding all constraints to randomize solving order
   void randomize_constraints();
 
+
+  void apply_forces(const NPMatrixd& f);
   // Steps the simulation
   void step();
 
