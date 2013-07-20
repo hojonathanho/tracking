@@ -26,7 +26,7 @@ public:
   // Takes an integer (num_triangles x 3) array that specifies the indices of triangle vertices
   // and populates the triangle tree according to the current position values
   void declare_triangles(const NPMatrixi& triangles);
-  int triangle_ray_test(const Eigen::Vector3d &ray_from, const Eigen::Vector3d &ray_to) const;
+  // int triangle_ray_test(const Eigen::Vector3d &ray_from, const Eigen::Vector3d &ray_to) const;
   std::vector<int> triangle_ray_test_against_nodes(const Eigen::Vector3d &ray_from) const;
 
   // Adds constraints and returns constraint ids

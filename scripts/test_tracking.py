@@ -79,7 +79,7 @@ def extract_red(rgb, depth, T_w_k):
   good_mask = red_mask & valid_mask
   good_xyz = xyz_w[good_mask]
 
-  return downsample(good_xyz, .01)
+  return downsample(good_xyz, .02)
 
 
 def make_cloth_from_cloud(xyz):
@@ -103,9 +103,9 @@ def draw_ax(T, size, env, handles):
 
 def main():
   pnoise = .01
-  pinvisible = .1
+  pinvisible = .01
   sigma = np.eye(3) * .005
-  force_lambda = 10
+  force_lambda = 100
   num_em_iters = 10
 
 
@@ -128,12 +128,12 @@ def main():
   first = True
   for i_frame in range(160, num_frames, skip):
     # Read point cloud
-    print 'Processing frame %d/%d' % (i_frame+1, num_frames)
     rgb, depth = rgbs[i_frame], depths[i_frame]
     # XYZ_k = clouds.depth_to_xyz(depth, berkeley_pr2.f)
     # XYZ_w = XYZ_k.dot(T_w_k[:3,:3].T) + T_w_k[:3,3][None,None,:]
     # handle = Globals.env.plot3(XYZ_w.reshape(-1,3), 2, rgb.reshape(-1,3)[:,::-1]/255.)
     cloud_xyz = extract_red(rgb, depth, T_w_k)
+    print 'Processing frame %d/%d. Number of points in cloud: %d' % (i_frame+1, num_frames, len(cloud_xyz))
 
     # Initialization: on the first frame, create cloth and table
     if first:
@@ -156,11 +156,13 @@ def main():
     for em_iter in range(num_em_iters):
       print 'EM iteration %d/%d' % (em_iter+1, num_em_iters)
       # Calculate visibility
-      is_visible = np.asarray(cloth.sys.triangle_ray_test_against_nodes(T_w_k[:3,3])) == -1
+      print 'camera pos', T_w_k[:3,3]
+      raytest_results = np.asarray(cloth.sys.triangle_ray_test_against_nodes(T_w_k[:3,3]))
+      not_visible = raytest_results >= 0
       # TODO: check if depth image contains a point significantly in front of the model node
-      #print 'visibility', is_visible, np.count_nonzero(is_visible)
-      visibility = np.empty_like(is_visible); visibility[:] = pinvisible
-      visibility[is_visible] = 1.
+      visibility = np.ones_like(not_visible, dtype=float)
+      visibility[not_visible] = pinvisible
+
 
       # Calculate expected correspondences
       model_xyz = cloth.get_node_positions()
@@ -181,11 +183,18 @@ def main():
       handles.append(env.plot3(cloud_xyz, 2, (1,0,0)))
       draw_ax(T_w_k, .1, env, handles)
 
-      cloth_colors[:,:] = [0,0,1]
-      cloth_colors[is_visible,:] = [1,1,1]
+      cloth_colors[raytest_results == -1,:] = [1,1,1]
+      cloth_colors[raytest_results == -2,:] = [0,0,1]
+      cloth_colors[not_visible,:] = [0,0,0]
       pos = cloth.get_node_positions()
       handles.append(env.plot3(pos, 10, cloth_colors))
       handles.append(env.drawlinelist(pos[np.array(cloth.get_distance_constraints())].reshape((-1, 3)), 1, (0,1,0)))
+
+      # raytest_results[not_visible]
+      # for i in range(cloth.num_nodes):
+      #   if not_visible[i]:
+      #     targ = pos[cloth.triangles[raytest_results[i]]].mean(axis=0)
+      #     handles.append(env.drawarrow(pos[i], targ, .001, [1,0,0]))
 
       for i in range(cloth.num_nodes):
         handles.append(env.drawarrow(pos[i], pos[i]+.05*(force_kd[i]/10), .0005))

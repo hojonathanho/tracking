@@ -15,6 +15,7 @@ using namespace Eigen;
 
 namespace tracking {
 
+static const double BENDING_CONSTRAINT_DENOM_TOL = 1e-10;
 
 ////////// Utility functions //////////
 
@@ -29,7 +30,7 @@ static inline Matrix3d crossprod(const MatrixBase<Derived> &v) {
 
 template<typename Derived>
 static inline btVector3 toBtVector3(const MatrixBase<Derived> &v) {
-  return btVector3(v(0), v(1), v(2));
+  return btVector3((btScalar) v(0), (btScalar) v(1), (btScalar) v(2));
 }
 
 template<typename Derived1, typename Derived2, typename Derived3>
@@ -41,7 +42,6 @@ static inline btDbvtVolume volumeOf(const MatrixBase<Derived1> &x1, const Matrix
 // Eigen-ized from btSoftBody::RayFromToCaster::rayFromToTriangle
 static inline double rayFromToTriangle(
     const Vector3d& rayFrom,
-    const Vector3d& rayTo,
     const Vector3d& rayNormalizedDirection,
     const Vector3d& a,
     const Vector3d& b,
@@ -152,7 +152,8 @@ struct BendingConstraint : public PositionConstraint {
   double m_stiffness;
 
   BendingConstraint(const vector<int>& i_point, const vector<double>& invm, double resting_angle, double stiffness)
-      : m_i_point(i_point), m_invm(invm), m_resting_angle(resting_angle), m_stiffness(stiffness) {
+      : m_i_point(i_point), m_invm(invm), m_resting_angle(resting_angle), m_stiffness(stiffness)
+  {
     assert(i_point.size() == 4);
     assert(invm.size() == 4);
   }
@@ -177,6 +178,9 @@ struct BendingConstraint : public PositionConstraint {
     double denom = 0;
     for (int i = 0; i < 4; ++i) {
       denom += m_invm[i] * q.row(i).squaredNorm();
+    }
+    if (fabs(denom) < BENDING_CONSTRAINT_DENOM_TOL) {
+      return;
     }
     double z = -m_stiffness * sqrt(1. - d*d) * (acos(d) - m_resting_angle) / denom;
 
@@ -356,68 +360,79 @@ struct MassSystem::Impl {
     }
   }
 
+
+  struct Collider : public btDbvt::ICollide {
+    const Impl* const m_impl;
+    const Vector3d m_ray_from, m_ray_to, m_ray_normalized_dir;
+    double m_filter_max_dist;
+
+    struct Result { int i_tri; double dist; };
+    vector<Result> m_results;
+
+    Collider(const Impl* impl, const Vector3d& ray_from, const Vector3d& ray_to, double filter_max_dist)
+      : m_impl(impl), m_ray_from(ray_from), m_ray_to(ray_to),
+        m_ray_normalized_dir((ray_to - ray_from).normalized()),
+        m_filter_max_dist(filter_max_dist)
+    { }
+
+    void Process(const btDbvtNode* leaf) {
+      int i_tri = reinterpret_cast<uintptr_t> (leaf->data);
+      assert(0 <= i_tri && i_tri < m_impl->m_triangles.rows());
+      double t = rayFromToTriangle(
+        m_ray_from, m_ray_normalized_dir,
+        m_impl->m_x.row(m_impl->m_triangles(i_tri,0)),
+        m_impl->m_x.row(m_impl->m_triangles(i_tri,1)),
+        m_impl->m_x.row(m_impl->m_triangles(i_tri,2)),
+        DBL_MAX
+      );
+      if (t > 0 && t < m_filter_max_dist) {
+        Result res = { i_tri, t };
+        m_results.push_back(res);
+      }
+    }
+
+    struct ResultCmp {
+      bool operator()(const Result &r1, const Result &r2) const { return r1.dist < r2.dist; }
+    };
+    void SortResults() {
+      std::sort(m_results.begin(), m_results.end(), ResultCmp());
+    }
+  };
+
   // returns the index of the nearest triangle collided, or -1 if no collisions
-  int triangle_ray_test(const Vector3d &ray_from, const Vector3d &ray_to) const {
+  vector<Collider::Result> triangle_ray_test(const Vector3d &ray_from, const Vector3d &ray_to, double filter_max_dist) const {
     if (m_tri_dbvt.empty()) {
       throw std::runtime_error("Ray test requested, but no triangles declared");
     }
 
-    struct Collider : public btDbvt::ICollide {
-      const Impl* const m_impl;
-      const Vector3d m_ray_from, m_ray_to, m_ray_normalized_dir;
-
-      struct Result { int i_tri; double dist; };
-      vector<Result> m_results;
-
-      Collider(const Impl* impl, const Vector3d& ray_from, const Vector3d& ray_to)
-        : m_impl(impl), m_ray_from(ray_from), m_ray_to(ray_to),
-          m_ray_normalized_dir((ray_to - ray_from).normalized())
-      { }
-
-      void Process(const btDbvtNode* leaf) {
-        int i_tri = reinterpret_cast<uintptr_t> (leaf->data);
-        assert(0 <= i_tri && i_tri < m_impl->m_triangles.rows());
-        double t = rayFromToTriangle(
-          m_ray_from, m_ray_to, m_ray_normalized_dir,
-          m_impl->m_x.row(m_impl->m_triangles(i_tri,0)),
-          m_impl->m_x.row(m_impl->m_triangles(i_tri,1)),
-          m_impl->m_x.row(m_impl->m_triangles(i_tri,2)),
-          DBL_MAX
-        );
-        if (t > 0) {
-          Result res = { i_tri, t };
-          m_results.push_back(res);
-        }
-      }
-
-      struct ResultCmp {
-        bool operator()(const Result &r1, const Result &r2) const { return r1.dist < r2.dist; }
-      };
-      void SortResults() {
-        std::sort(m_results.begin(), m_results.end(), ResultCmp());
-      }
-
-    } collider(this, ray_from, ray_to);
+    Collider collider(this, ray_from, ray_to, filter_max_dist);
 
     btDbvt::rayTest(m_tri_dbvt.m_root, toBtVector3(ray_from), toBtVector3(ray_to), collider);
     collider.SortResults();
-    return collider.m_results.empty() ? -1 : collider.m_results[0].i_tri;
+    return collider.m_results;
   }
 
-  int triangle_ray_test_against_single_node(int i_node, const Vector3d& ray_from) const {
-    // TODO: check that the collided triangle is in front of the node
-    int i_tri_collided = triangle_ray_test(ray_from, m_x.row(i_node));
-    // ignore collision if collided triangle contains the node as one of its vertices
-    if (i_tri_collided == -1 || m_triangles.row(i_tri_collided).cwiseEqual(i_node).any()) {
+  int triangle_ray_test_against_single_node(const Vector3d& ray_from, int i_node) const {
+    double max_dist = (ray_from - m_x.row(i_node).transpose()).norm() - 1e-5;
+    vector<Collider::Result> results = triangle_ray_test(ray_from, m_x.row(i_node), max_dist);
+    if (results.size() == 0) {
       return -1;
     }
+
+    int i_tri_collided = -2;
+    for (int i = 0; i < results.size(); ++i) {
+      // ignore collision if collided triangle contains the node as one of its vertices
+      if (m_triangles.row(results[i].i_tri).cwiseEqual(i_node).any()) continue;
+      i_tri_collided = results[i].i_tri; break;
+    }
+
     return i_tri_collided;
   }
 
   vector<int> triangle_ray_test_against_nodes(const Vector3d &ray_from) const {
     vector<int> out(m_num_nodes);
     for (int i = 0; i < m_num_nodes; ++i) {
-      out[i] = triangle_ray_test_against_single_node(i, ray_from);
+      out[i] = triangle_ray_test_against_single_node(ray_from, i);
     }
     return out;
   }
@@ -459,7 +474,7 @@ void MassSystem::step() { m_impl->step(); }
 py::object MassSystem::get_node_positions() const { return m_impl->m_x.ndarray(); }
 
 void MassSystem::declare_triangles(const NPMatrixi& triangles) { m_impl->declare_triangles(triangles); }
-int MassSystem::triangle_ray_test(const Vector3d &ray_from, const Vector3d &ray_to) const { return m_impl->triangle_ray_test(ray_from, ray_to); }
+// int MassSystem::triangle_ray_test(const Vector3d &ray_from, const Vector3d &ray_to) const { return m_impl->triangle_ray_test(ray_from, ray_to, DBL_MAX); } // TODO: arg for max
 vector<int> MassSystem::triangle_ray_test_against_nodes(const Vector3d &ray_from) const { return m_impl->triangle_ray_test_against_nodes(ray_from); }
 
 int MassSystem::add_anchor_constraint(int i_point, const NPMatrixd& anchor_pos) {

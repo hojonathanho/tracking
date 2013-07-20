@@ -62,6 +62,9 @@ public:
       }
     }
 
+    // TODO: use the Eigen Map's stride stuff instead of making a copy when unneeded
+    in = GetNumPyMod().attr("ascontiguousarray")(in);
+
     NPMatrix out;
     out.m_ndarray = in;
     py::tuple shape = py::extract<py::tuple>(in.attr("shape"));

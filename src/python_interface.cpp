@@ -71,7 +71,7 @@ BOOST_PYTHON_MODULE(ctrackingpy) {
     .def("get_node_positions", &MassSystem::get_node_positions)
 
     .def("declare_triangles", &MassSystem::declare_triangles)
-    .def("triangle_ray_test", &MassSystem::triangle_ray_test)
+    // .def("triangle_ray_test", &MassSystem::triangle_ray_test)
     .def("triangle_ray_test_against_nodes", &MassSystem::triangle_ray_test_against_nodes)
 
     .def("add_anchor_constraint", &MassSystem::add_anchor_constraint)

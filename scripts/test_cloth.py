@@ -27,7 +27,7 @@ def main():
   env.LoadData(make_table_xml(translation=[0, 0, -.05], extents=[1, 1, .05]))
 
   np.random.seed(0)
-  cloth = Cloth(res_x=50, res_y=50, len_x=.5, len_y=1., init_center=np.array([0, 0, .5]))
+  cloth = Cloth(res_x=10, res_y=20, len_x=.5, len_y=1., init_center=np.array([0, 0, .5]))
 
   # anchors for testing
   for i in range(cloth.res_x):
@@ -58,7 +58,7 @@ def main():
     pos = cloth.get_node_positions()
     handles = [env.plot3(pos, 5)]
     handles.append(env.drawlinelist(pos[constrained_nodes].reshape((-1, 3)), 1, (0,1,0)))
-    viewer.Step()
+    viewer.Idle()
 
     log[i,:,:] = pos
 
