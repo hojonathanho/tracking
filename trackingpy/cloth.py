@@ -13,6 +13,7 @@ class Cloth(object):
     self.num_nodes = self.res_x * self.res_y
 
     self.init_pos = np.zeros((self.num_nodes, 3))
+    print 'initial dist', min(self.len_x/(self.res_x-1.), self.len_y/(self.res_y-1.))
     self.init_pos[:,:2] = np.dstack(np.meshgrid(np.linspace(0, self.len_x, self.res_x), np.linspace(0, self.len_y, self.res_y))).reshape((-1, 2))
     self.init_pos -= self.init_pos.mean(axis=0) - self.init_center
     masses = np.ones(self.num_nodes)
@@ -22,9 +23,9 @@ class Cloth(object):
     sim_params.dt = .01
     sim_params.solver_iters = 10
     sim_params.gravity = np.array([0, 0, -1.])
-    sim_params.damping = 1
+    sim_params.damping = 10 # .1 for fancy damping, 1 for simple damping
     sim_params.stretching_stiffness = 1
-    sim_params.bending_stiffness = 1
+    sim_params.bending_stiffness = .7
 
     self.sys = trackingpy.MassSystem(self.init_pos, masses, sim_params)
 

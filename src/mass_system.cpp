@@ -272,7 +272,7 @@ struct MassSystem::Impl {
 
   void step() {
     // velocity step
-    m_f += -m_sim_params.damping * m_v;
+    m_f += -m_sim_params.damping * m_v; // simple damping
     for (int i = 0; i < m_num_nodes; ++i) {
       m_v.row(i) += m_sim_params.dt * m_invm(i) * (m_sim_params.gravity.transpose() + m_f.row(i));
     }
