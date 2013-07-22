@@ -49,15 +49,13 @@ def main():
 
   log = np.empty((iters, cloth.num_nodes, 3))
 
-  constrained_nodes = np.array(cloth.get_distance_constraints())
-
   print 'cloth made'
   for i in range(iters):
     print i
     cloth.step()
     pos = cloth.get_node_positions()
     handles = [env.plot3(pos, 5)]
-    handles.append(env.drawlinelist(pos[constrained_nodes].reshape((-1, 3)), 1, (0,1,0)))
+    handles.append(env.drawlinelist(pos[cloth.get_edges()].reshape((-1, 3)), 1, (0,1,0)))
     viewer.Idle()
 
     log[i,:,:] = pos

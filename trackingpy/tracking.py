@@ -21,15 +21,16 @@ def mvn_densities(x_nd, m_kd, cov_dd):
   return out
 
 
-def main():
-  x_nd = np.array([[0,0,0], [1,1,1], [1,1,2]])
-  m_kd = np.array([[1,1,1], [-1,0,6]])
-  cov_dd = np.diag((3, 2, 1))
-  out = mvn_densities(x_nd, m_kd, cov_dd)
-  for i in range(len(x_nd)):
-    for j in range(len(m_kd)):
-      assert out[i,j] == mvn_densities(x_nd[[i]], m_kd[[j]], cov_dd)
-  print 'tests passed'
+import unittest
+class Tests(unittest.TestCase):
+  def test_mvn_densities(self):
+    x_nd = np.array([[0,0,0], [1,1,1], [1,1,2]])
+    m_kd = np.array([[1,1,1], [-1,0,6]])
+    cov_dd = np.diag((3, 2, 1))
+    out = mvn_densities(x_nd, m_kd, cov_dd)
+    for i in range(len(x_nd)):
+      for j in range(len(m_kd)):
+        self.assertEqual(out[i,j], mvn_densities(x_nd[[i]], m_kd[[j]], cov_dd))
 
 if __name__ == '__main__':
-  main()
+  unittest.main()

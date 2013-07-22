@@ -3,7 +3,8 @@ import numpy as np
 import h5py
 import argparse
 import subprocess
-from rapprentice import berkeley_pr2, PR2, clouds
+from rapprentice import berkeley_pr2, PR2
+from trackingpy import clouds
 import cv2
 
 cmap = np.zeros((256, 3),dtype='uint8')
@@ -16,36 +17,6 @@ class Globals(object):
   env = None
   robot = None
 
-
-def extract_red(rgb, depth, T_w_k):
-    """
-    extract red points and downsample
-    """
-        
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_BGR2HSV)
-    h = hsv[:,:,0]
-    s = hsv[:,:,1]
-    v = hsv[:,:,2]
-    
-    red_mask = ((h<10) | (h>150)) & (s > 100) & (v > 100)
-    
-    valid_mask = depth > 0
-    
-    xyz_k = clouds.depth_to_xyz(depth, berkeley_pr2.f)
-    xyz_w = xyz_k.dot(T_w_k[:3,:3].T) + T_w_k[:3,3][None,None,:]
-    
-    z = xyz_w[:,:,2]   
-    z0 = xyz_k[:,:,2]
-    height_mask = xyz_w[:,:,2] > .7 # TODO pass in parameter
-    
-    
-    good_mask = red_mask & height_mask & valid_mask
-
-    good_xyz = xyz_w[good_mask]
-    
-
-    return clouds.downsample(good_xyz, .01)
-
 def draw_ax(T, size, env, handles):
     p0 = T[:3,3]
     xax, yax, zax = T[:3,:3].T*size
@@ -55,8 +26,6 @@ def draw_ax(T, size, env, handles):
     handles.append(env.drawarrow(p0, p0+zax, width, [0,0,1]))
 
 def main():
-  subprocess.call("killall XnSensorServer", shell=True)
-
   parser = argparse.ArgumentParser()
   parser.add_argument('file', type=str)
   parser.add_argument('--real_robot', action='store_true')
@@ -79,7 +48,7 @@ def main():
       # XYZ_k = clouds.depth_to_xyz(depth, berkeley_pr2.f)
       # XYZ_w = XYZ_k.dot(T_w_k[:3,:3].T) + T_w_k[:3,3][None,None,:]
       # handle = Globals.env.plot3(XYZ_w.reshape(-1,3), 2, rgb.reshape(-1,3)[:,::-1]/255.)
-      xyz = extract_red(rgb, depth, T_w_k)
+      xyz = clouds.extract_color(rgb, depth, T_w_k, clouds.yellow_mask)
       handles = []
       handles.append(Globals.env.plot3(xyz, 2, (1,0,0)))
       draw_ax(T_w_k, .1, Globals.env, handles)
@@ -106,6 +75,7 @@ def main():
   num_frames = 0
   rgbs, depths = [], []
 
+  subprocess.call("killall XnSensorServer", shell=True)
   grabber = cloudprocpy.CloudGrabber()
   grabber.startRGBD()
   try:
