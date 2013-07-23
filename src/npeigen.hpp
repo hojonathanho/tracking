@@ -7,6 +7,7 @@
 #include <string>
 
 #include <iostream>
+#include "macros.hpp"
 
 namespace py = boost::python;
 py::object GetNumPyMod();
@@ -57,7 +58,7 @@ public:
       if ((target_dtype == "float32" || target_dtype == "float64") && (dtype == "int32" || dtype == "int64")) {
         in = other.attr("astype")(target_dtype);
       } else {
-        throw std::runtime_error((boost::format("Error converting Python ndarray to Eigen matrix: expected dtype %s, got %s instead")
+        PRINT_AND_THROW((boost::format("Error converting Python ndarray to Eigen matrix: expected dtype %s, got %s instead")
           % NPMatrixTypes<Scalar>::scalar_npname % dtype).str());
       }
     }
@@ -76,7 +77,7 @@ public:
       out.resetMap(getNdarrayPointer(out.m_ndarray), py::extract<int>(shape[0]), py::extract<int>(shape[1]));
       break;
     default:
-      throw std::runtime_error("ndarray must have rank 1 or 2");
+      PRINT_AND_THROW("ndarray must have rank 1 or 2");
     }
     assert(out.initialized());
     return out;

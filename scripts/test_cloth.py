@@ -1,6 +1,6 @@
 import numpy as np
 import trackingpy
-from trackingpy.cloth import Cloth
+from trackingpy.cloth import Cloth, Mesh
 
 def make_table_xml(translation, extents):
   xml = """
@@ -27,11 +27,19 @@ def main():
   env.LoadData(make_table_xml(translation=[0, 0, -.05], extents=[1, 1, .05]))
 
   np.random.seed(0)
-  cloth = Cloth(res_x=10, res_y=20, len_x=.5, len_y=1., init_center=np.array([0, 0, .5]))
+  sim_params = trackingpy.SimulationParams()
+  sim_params.dt = .01
+  sim_params.solver_iters = 10
+  sim_params.gravity = np.array([0, 0, -1.])
+  sim_params.damping = 1
+  sim_params.stretching_stiffness = 1
+  sim_params.bending_stiffness = .7
+  cloth = Mesh('/home/jonathan/Desktop/simple_cloth_with_slit.obj', 100, sim_params)
+  # cloth = Cloth(res_x=50, res_y=50, len_x=.5, len_y=1., init_center=np.array([0, 0, .5]), total_mass=100, sim_params=sim_params)
 
   # anchors for testing
-  for i in range(cloth.res_x):
-    cloth.sys.add_anchor_constraint(i, cloth.init_pos[i])
+  # for i in range(cloth.res_x):
+  #   cloth.sys.add_anchor_constraint(i, cloth.init_pos[i])
 
   # add above-table constraints
   for i in range(cloth.num_nodes):
@@ -45,25 +53,13 @@ def main():
   # print 'iters/sec =', float(num_timing_iters)/result, 'total time =', result
   # raw_input('done timing')
 
-  iters = 100000
-
-  log = np.empty((iters, cloth.num_nodes, 3))
-
   print 'cloth made'
-  for i in range(iters):
-    print i
+  while True:
     cloth.step()
     pos = cloth.get_node_positions()
     handles = [env.plot3(pos, 5)]
-    handles.append(env.drawlinelist(pos[cloth.get_edges()].reshape((-1, 3)), 1, (0,1,0)))
+    handles.append(env.drawlinelist(cloth.get_edge_positions().reshape((-1, 3)), 1, (0,1,0)))
     viewer.Idle()
-
-    log[i,:,:] = pos
-
-  # import cPickle
-  # with open('out.pkl', 'w') as f:
-  #   cPickle.dump(log, f)
-
 
 if __name__ == '__main__':
   main()

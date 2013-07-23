@@ -13,9 +13,11 @@ using namespace Eigen;
 #include <cfloat>
 #include "BulletCollision/BroadphaseCollision/btDbvt.h"
 
+#include "macros.hpp"
+
 namespace tracking {
 
-static const double BENDING_CONSTRAINT_DENOM_TOL = 1e-10;
+static const double BENDING_CONSTRAINT_DENOM_TOL = 1e-5;
 
 ////////// Utility functions //////////
 
@@ -200,7 +202,7 @@ struct MassSystem::Impl {
     // initial positions
     m_num_nodes = init_x.rows();
     if (init_x.cols() != 3) {
-      throw std::runtime_error("Number of columns of init_x must be 3");
+      PRINT_AND_THROW("Number of columns of init_x must be 3");
     }
     m_x = m_tmp_x = init_x;
 
@@ -210,7 +212,7 @@ struct MassSystem::Impl {
 
     // node masses
     if (m.rows() != m_num_nodes || m.cols() != 1) {
-      throw std::runtime_error("m must have shape Nx1");
+      PRINT_AND_THROW("m must have shape Nx1");
     }
     m_mass = m;
     m_total_mass = m_mass.sum();
@@ -225,13 +227,13 @@ struct MassSystem::Impl {
 
     m_sim_params = sim_params;
     // if (m_sim_params.damping < 0 || m_sim_params.damping > 1) {
-    //   throw std::runtime_error("damping must be in [0, 1]");
+    //   PRINT_AND_THROW("damping must be in [0, 1]");
     // }
     if (m_sim_params.stretching_stiffness < 0 || m_sim_params.stretching_stiffness > 1) {
-      throw std::runtime_error("stretching_stiffness must be in [0, 1]");
+      PRINT_AND_THROW("stretching_stiffness must be in [0, 1]");
     }
     if (m_sim_params.bending_stiffness < 0 || m_sim_params.bending_stiffness > 1) {
-      throw std::runtime_error("bending_stiffness must be in [0, 1]");
+      PRINT_AND_THROW("bending_stiffness must be in [0, 1]");
     }
   }
 
@@ -334,7 +336,7 @@ struct MassSystem::Impl {
 
   void declare_triangles(const NPMatrixi& triangles) {
     if (triangles.rows() == 0 || triangles.cols() != 3) {
-      throw std::runtime_error("Input triangles is empty or doesn't have 3 columns");
+      PRINT_AND_THROW("Input triangles is empty or doesn't have 3 columns");
     }
     m_triangles = triangles;
 
@@ -402,7 +404,7 @@ struct MassSystem::Impl {
   // returns the index of the nearest triangle collided, or -1 if no collisions
   vector<Collider::Result> triangle_ray_test(const Vector3d &ray_from, const Vector3d &ray_to, double filter_max_dist) const {
     if (m_tri_dbvt.empty()) {
-      throw std::runtime_error("Ray test requested, but no triangles declared");
+      PRINT_AND_THROW("Ray test requested, but no triangles declared");
     }
 
     Collider collider(this, ray_from, ray_to, filter_max_dist);
@@ -472,8 +474,10 @@ MassSystem::~MassSystem() { delete m_impl; }
 void MassSystem::apply_forces(const NPMatrixd& f) { m_impl->apply_forces(f); }
 void MassSystem::step() { m_impl->step(); }
 py::object MassSystem::get_node_positions() const { return m_impl->m_x.ndarray(); }
+int MassSystem::get_num_nodes() const { return m_impl->m_x.rows(); }
 
 void MassSystem::declare_triangles(const NPMatrixi& triangles) { m_impl->declare_triangles(triangles); }
+py::object MassSystem::get_triangles() const { return m_impl->m_triangles.ndarray(); }
 // int MassSystem::triangle_ray_test(const Vector3d &ray_from, const Vector3d &ray_to) const { return m_impl->triangle_ray_test(ray_from, ray_to, DBL_MAX); } // TODO: arg for max
 vector<int> MassSystem::triangle_ray_test_against_nodes(const Vector3d &ray_from) const { return m_impl->triangle_ray_test_against_nodes(ray_from); }
 

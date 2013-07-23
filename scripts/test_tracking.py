@@ -1,6 +1,6 @@
 import numpy as np
 import trackingpy
-from trackingpy.cloth import Cloth
+from trackingpy.cloth import TriangleMesh, Cloth
 from trackingpy import tracking, clouds
 
 import openravepy, trajoptpy, cloudprocpy
@@ -8,6 +8,7 @@ import openravepy, trajoptpy, cloudprocpy
 import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--input', type=str, default=None)
+parser.add_argument('--gpu', action='store_true')
 args = parser.parse_args()
 
 def make_table_xml(translation, extents):
@@ -34,19 +35,9 @@ def draw_ax(T, size, env, handles):
     handles.append(env.drawarrow(p0, p0+yax, width, [0,1,0]))
     handles.append(env.drawarrow(p0, p0+zax, width, [0,0,1]))
 
-def norms(x, axis=0):
-    return np.sqrt((x**2).sum(axis=axis))
-
 def initialize_cloth(env, cloud_xyz):
   table_height = cloud_xyz[:,2].mean() - .01
   env.LoadData(make_table_xml(translation=[0, 0, table_height-.05], extents=[1, 1, .05]))
-
-  # calculate cloth dims, assuming laid out in x-y plane with no rotation
-  cutoff_ind = int(len(cloud_xyz) * .01)
-  argsort_x, argsort_y = cloud_xyz[:,0].argsort(), cloud_xyz[:,1].argsort()
-  len_x = cloud_xyz[argsort_x[len(cloud_xyz)-cutoff_ind-1],0] - cloud_xyz[argsort_x[cutoff_ind],0]
-  len_y = cloud_xyz[argsort_y[len(cloud_xyz)-cutoff_ind-1],1] - cloud_xyz[argsort_y[cutoff_ind],1]
-
 
   sim_params = trackingpy.SimulationParams()
   sim_params.dt = .01
@@ -55,38 +46,43 @@ def initialize_cloth(env, cloud_xyz):
   sim_params.damping = 10
   sim_params.stretching_stiffness = 1
   sim_params.bending_stiffness = .7
+  # return TriangleMesh.FromObjFile('/home/jonathan/Desktop/simple_cloth_with_slit.obj', init_center=cloud_xyz.mean(axis=0)+[0,0,.01], total_mass=300, sim_params=sim_params)
 
-  cloth = Cloth(res_x=10, res_y=30, len_x=len_x, len_y=len_y, init_center=cloud_xyz.mean(axis=0)+[0,0,.01], total_mass=300, sim_params=sim_params)
+  # calculate cloth dims, assuming laid out in x-y plane with no rotation
+  cutoff_ind = int(len(cloud_xyz) * .01)
+  argsort_x, argsort_y = cloud_xyz[:,0].argsort(), cloud_xyz[:,1].argsort()
+  len_x = cloud_xyz[argsort_x[len(cloud_xyz)-cutoff_ind-1],0] - cloud_xyz[argsort_x[cutoff_ind],0]
+  len_y = cloud_xyz[argsort_y[len(cloud_xyz)-cutoff_ind-1],1] - cloud_xyz[argsort_y[cutoff_ind],1]
+  # len_x = .6
+  # len_y = .52
+  res_x = 10#20
+  res_y = 30#22
+
+  cloth = Cloth(res_x=res_x, res_y=res_y, len_x=len_x, len_y=len_y, init_center=cloud_xyz.mean(axis=0)+[0,0,.01], total_mass=300, sim_params=sim_params)
+  # with open('/home/jonathan/Desktop/simple_cloth.obj', 'w') as f: f.write(cloth.dump_obj_data())
   # add above-table constraints
-  for i in range(cloth.num_nodes):
+  for i in range(cloth.get_num_nodes()):
     cloth.sys.add_plane_constraint(i, np.array([0, 0, table_height]), np.array([0, 0, 1]))
-
   return cloth
 
 
 def plot(env, handles, cloud_xyz, T_w_k, cloth, occluded_in_depth_img=None, occluded_by_model=None, force_kd=None):
-  handles.append(env.plot3(cloud_xyz, 2, (1,0,0)))
+  handles.append(env.plot3(cloud_xyz, 5, (1,0,0)))
   draw_ax(T_w_k, .1, env, handles)
   pos = cloth.get_node_positions()
 
-  cloth_colors = np.ones((cloth.num_nodes, 3), dtype=float)
+  cloth_colors = np.ones((cloth.get_num_nodes(), 3), dtype=float)
   if occluded_by_model is not None and occluded_in_depth_img is not None:
     cloth_colors[occluded_in_depth_img,:] = [0,0,1]
     cloth_colors[occluded_by_model,:] = [0,0,0]
   handles.append(env.plot3(pos, 10, cloth_colors))
-  handles.append(env.drawlinelist(pos[cloth.get_edges()].reshape((-1, 3)), 1, (0,1,0)))
+  handles.append(env.drawlinelist(cloth.get_edge_positions().reshape((-1, 3)), 1, (0,1,0)))
 
   if force_kd is not None:
-    for i in range(cloth.num_nodes):
+    for i in range(cloth.get_num_nodes()):
       handles.append(env.drawarrow(pos[i], pos[i]+.05*(force_kd[i]/10), .0005))
 
 def main():
-  pnoise = .01
-  pinvisible = .1
-  sigma = np.eye(3) * .0001
-  force_lambda = 100
-  num_em_iters = 5
-  depth_occlude_tol = .03
 
   env = openravepy.Environment()
   viewer = trajoptpy.GetViewer(env)
@@ -120,13 +116,12 @@ def main():
       skip = 2
       start = 160
       for i_frame in range(start, num_frames, skip):
-        #print 'Processing frame %d/%d. Number of points in cloud: %d' % (i_frame+1, num_frames, len(cloud_xyz))
         print 'Processing frame %d/%d.' % (i_frame+1, num_frames)
         yield rgbs[i_frame], depths[i_frame], T_w_k
 
 
   for i_frame, (rgb, depth, T_w_k) in enumerate(stream_rgbd()):
-    cloud_xyz = clouds.extract_color(rgb, depth, T_w_k)
+    cloud_xyz = clouds.extract_color(rgb, depth, T_w_k, clouds.red_mask)
     if len(cloud_xyz) == 0:
       print 'Filtered cloud is empty. Skipping frame.'
       continue
@@ -137,34 +132,15 @@ def main():
       print 'Initialization ok?'
       handles = []; plot(env, handles, cloud_xyz, T_w_k, cloth)
       viewer.Idle()
+      if args.gpu:
+        from trackingpy import tracking_gpu
+        tracker = tracking_gpu.GPUTracker(cloth)
+      else:
+        tracker = tracking.Tracker(cloth)
 
-    for em_iter in range(num_em_iters):
-      print 'EM iteration %d/%d' % (em_iter+1, num_em_iters)
-      model_xyz = cloth.get_node_positions()
-
-      # Calculate visibility
-      # check for nodes occluded by other nodes by raycasting from the camera
-      raytest_results = np.asarray(cloth.sys.triangle_ray_test_against_nodes(T_w_k[:3,3]))
-      occluded_by_model = raytest_results >= 0
-      visibility = np.ones_like(occluded_by_model, dtype=float)
-      visibility[occluded_by_model] = pinvisible
-      # check if depth image contains a point significantly in front of a model node
-      dist_cam2node = norms(T_w_k[:3,3][None,:] - model_xyz, axis=1)
-      T_k_w = np.linalg.inv(T_w_k)
-      depth_cam2node = clouds.lookup_depth_by_xyz(depth, model_xyz.dot(T_k_w[:3,:3].T) + T_k_w[:3,3])
-      occluded_in_depth_img = depth_cam2node < (dist_cam2node - depth_occlude_tol)
-      visibility[occluded_in_depth_img] = pinvisible
-
-      # Calculate expected correspondences
-      alpha_NK = tracking.mvn_densities(cloud_xyz, model_xyz, sigma) * visibility[None,:]
-      alpha_NK /= (alpha_NK.sum(axis=1) + pnoise)[:,None]
-
-      # Calculate and apply forces
-      force_kd = force_lambda * (alpha_NK[:,:,None] * (cloud_xyz[:,None,:] - model_xyz[None,:,:])).sum(axis=0)
-      cloth.sys.apply_forces(force_kd)
-      cloth.step()
-
-    handles = []; plot(env, handles, cloud_xyz, T_w_k, cloth, occluded_in_depth_img, occluded_by_model, force_kd)
+    tracker.set_input(cloud_xyz, depth, T_w_k)
+    out = tracker.step(return_data=True)
+    handles = []; plot(env, handles, cloud_xyz, T_w_k, cloth, out['occluded_in_depth_img'], out['occluded_by_model'], out['force_kd'])
 
     if live:
       viewer.Step()

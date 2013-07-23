@@ -45,7 +45,9 @@ public:
   // Steps the simulation
   void step();
 
+  int get_num_nodes() const;
   py::object get_node_positions() const;
+  py::object get_triangles() const;
 
 
 private:
