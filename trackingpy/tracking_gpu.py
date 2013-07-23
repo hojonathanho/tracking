@@ -59,14 +59,6 @@ __global__ void calc_forces(float lambda, float *alpha_nk, float *x_nd, float *m
     out_nkd[i*K*D + j*D + d] = lambda * alpha_nk[i*K + j] * (x_nd[i*D + d] - m_kd[j*D + d]);
   }
 }
-
-__global__ void test_fill(float *out, int N, int K) {
-  int i = threadIdx.y + blockIdx.y*blockDim.y;
-  int j = threadIdx.x + blockIdx.x*blockDim.x;
-  if (i >= N || j >= K) return;
-  int out_idx = j + i*K;
-  out[out_idx] = i*100 + j;
-}
   """)
 
   spherical_mvn = mod.get_function('spherical_mvn')
@@ -84,80 +76,6 @@ __global__ void test_fill(float *out, int N, int K) {
       assert isinstance(out, gpuarray.GPUArray) and out.shape == (N, K)
     GPUMethods.spherical_mvn(x_nd.gpudata, m_kd.gpudata, np.float32(cov), np.int32(N), np.int32(K), out.gpudata, block=GPUArgs.block(), grid=GPUArgs.grid(N, K))
     return out
-
-
-
-# def em_loop_gpu(tracked_obj, cloud_xyz, depth, T_w_k, return_data=False):
-#   pnoise = .01
-#   pinvisible = .1
-#   sigma = .0001
-#   force_lambda = 100
-#   num_em_iters = 20
-#   depth_occlude_tol = .03
-
-#   for em_iter in range(num_em_iters):
-#     print 'EM iteration %d/%d' % (em_iter+1, num_em_iters)
-#     t_begin = time.time()
-
-#     model_xyz = tracked_obj.get_node_positions()
-#     # Calculate visibility
-#     # check for nodes occluded by other nodes by raycasting from the camera
-#     t_begin_visibility = time.time()
-#     raytest_results = np.asarray(tracked_obj.sys.triangle_ray_test_against_nodes(T_w_k[:3,3]))
-#     occluded_by_model = raytest_results >= 0
-#     visibility = np.ones_like(occluded_by_model, dtype=float)
-#     visibility[occluded_by_model] = pinvisible
-#     # check if depth image contains a point significantly in front of a model node
-#     dist_cam2node = norms(T_w_k[:3,3][None,:] - model_xyz, axis=1)
-#     T_k_w = np.linalg.inv(T_w_k)
-#     depth_cam2node = clouds.lookup_depth_by_xyz(depth, model_xyz.dot(T_k_w[:3,:3].T) + T_k_w[:3,3])
-#     occluded_in_depth_img = depth_cam2node < (dist_cam2node - depth_occlude_tol)
-#     visibility[occluded_in_depth_img] = pinvisible
-#     Timing.t_total_visibility += time.time() - t_begin_visibility
-
-#     model_xyz_gpu = gpuarray.to_gpu(model_xyz.astype(np.float32))
-#     cloud_xyz_gpu = gpuarray.to_gpu(cloud_xyz.astype(np.float32))
-#     visibilities_gpu = gpuarray.to_gpu(visibility.astype(np.float32))
-
-#     # Calculate expected correspondences
-#     t_begin_corr = time.time()
-#     alpha_NK_gpu = spherical_mvn_densities_gpu(cloud_xyz_gpu, model_xyz_gpu, sigma)
-#     mod.get_function("mult_rowwise")(alpha_NK_gpu.gpudata, visibilities_gpu.gpudata, np.int32(N), np.int32(K), block=GPUArgs.block(), grid=GPUArgs.grid(N, K))
-#     norms_n = 1. / (alpha_NK_gpu.get().sum(axis=1) + pnoise)
-#     mod.get_function("mult_colwise")(alpha_NK_gpu.gpudata, gpuarray.to_gpu(norms_n.astype(np.float32)).gpudata, np.int32(N), np.int32(K), block=GPUArgs.block(), grid=GPUArgs.grid(N, K))
-#     Timing.t_total_corr += time.time() - t_begin_corr
-
-#     # Calculate and apply forces
-#     t_begin_forces = time.time()
-#     force_kd_gpu = gpuarray.empty((N, K, D), np.float32)
-#     mod.get_function("calc_forces")(np.float32(force_lambda), alpha_NK_gpu.gpudata, cloud_xyz_gpu.gpudata, model_xyz_gpu.gpudata, np.int32(N), np.int32(K), force_kd_gpu.gpudata, block=GPUArgs.block(), grid=GPUArgs.grid(N, K))
-#     force_kd = force_kd_gpu.get().sum(axis=0).astype(float)
-#     Timing.t_total_forces += time.time() - t_begin_forces
-
-#     t_begin_physics = time.time()
-#     tracked_obj.sys.apply_forces(force_kd)
-#     tracked_obj.step()
-#     Timing.t_total_physics += time.time() - t_begin_physics
-
-#     Timing.t_total += time.time() - t_begin
-
-#     if em_iter == num_em_iters-1:
-#       print 'Timing:'
-#       print '\tvisibility: %f (%f%%)' % (Timing.t_total_visibility, Timing.t_total_visibility/Timing.t_total*100.)
-#       print '\tcorr: %f (%f%%)' % (Timing.t_total_corr, Timing.t_total_corr/Timing.t_total*100.)
-#       print '\tforces: %f (%f%%)' % (Timing.t_total_forces, Timing.t_total_forces/Timing.t_total*100.)
-#       print '\tphysics: %f (%f%%)' % (Timing.t_total_physics, Timing.t_total_physics/Timing.t_total*100.)
-#       print '\ttotal: %f' % Timing.t_total
-
-#   if return_data:
-#     return {
-#       'occluded_in_depth_img': occluded_in_depth_img,
-#       'occluded_by_model': occluded_by_model,
-#       'force_kd': force_kd
-#     }
-
-#   return None
-
 
 
 class GPUTracker(tracking.Tracker):
