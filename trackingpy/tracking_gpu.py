@@ -10,7 +10,7 @@ import pycuda.compiler
 class GPUArgs(object):
   @staticmethod
   def block():
-    return (4, 4, 1)
+    return (32, 32, 1)
 
   @staticmethod
   def grid(N, K):
@@ -50,6 +50,17 @@ __global__ void mult_colwise(float *a_nk, float *b_n, int N, int K) {
   a_nk[i*K + j] *= b_n[i];
 }
 
+__global__ void calc_corr_normalization(float *a_nk, float pnoise, int N, int K, float *out_n) {
+  int i = threadIdx.x + blockIdx.x*blockDim.x;
+  if (i >= N) return;
+
+  out_n[i] = pnoise;
+  for (int j = 0; j < K; ++j) {
+    out_n[i] += a_nk[i*K + j];
+  }
+  out_n[i] = 1.f/out_n[i];
+}
+
 __global__ void calc_forces(float lambda, float *alpha_nk, float *x_nd, float *m_kd, int N, int K, float *out_nkd) {
   int i = threadIdx.y + blockIdx.y*blockDim.y;
   int j = threadIdx.x + blockIdx.x*blockDim.x;
@@ -59,48 +70,94 @@ __global__ void calc_forces(float lambda, float *alpha_nk, float *x_nd, float *m
     out_nkd[i*K*D + j*D + d] = lambda * alpha_nk[i*K + j] * (x_nd[i*D + d] - m_kd[j*D + d]);
   }
 }
+
+__global__ void sum_forces_across_cloud(float *in_nkd, int N, int K, float *out_kd) {
+  int k = threadIdx.y + blockIdx.y*blockDim.y;
+  int d = threadIdx.x + blockIdx.x*blockDim.x;
+  if (k >= K || d >= D) return;
+
+  out_kd[k*D + d] = 0.f;
+  for (int i = 0; i < N; ++i) {
+    out_kd[k*D + d] += in_nkd[i*K*D + k*D + d];
+  }
+}
+
   """)
 
   spherical_mvn = mod.get_function('spherical_mvn')
-  mult_rowwise = mod.get_function('mult_rowwise')
-  mult_colwise = mod.get_function('mult_colwise')
-  calc_forces = mod.get_function('calc_forces')
+  spherical_mvn.prepare('PPfiiP')
 
-  @staticmethod
-  def spherical_mvn_densities(x_nd, m_kd, cov, out=None):
-    N, K, D = x_nd.shape[0], m_kd.shape[0], m_kd.shape[1]
-    assert x_nd.shape[1] == D and isinstance(x_nd, gpuarray.GPUArray) and isinstance(m_kd, gpuarray.GPUArray) and D == 3
-    if out is None:
-      out = gpuarray.empty((N, K), np.float32)
-    else:
-      assert isinstance(out, gpuarray.GPUArray) and out.shape == (N, K)
-    GPUMethods.spherical_mvn(x_nd.gpudata, m_kd.gpudata, np.float32(cov), np.int32(N), np.int32(K), out.gpudata, block=GPUArgs.block(), grid=GPUArgs.grid(N, K))
-    return out
+  calc_corr_normalization = mod.get_function('calc_corr_normalization')
+  calc_corr_normalization.prepare('PfiiP')
+
+  mult_rowwise = mod.get_function('mult_rowwise')
+  mult_rowwise.prepare('PPii')
+
+  mult_colwise = mod.get_function('mult_colwise')
+  mult_colwise.prepare('PPii')
+
+  calc_forces = mod.get_function('calc_forces')
+  calc_forces.prepare('fPPPiiP')
+
+  sum_forces_across_cloud = mod.get_function('sum_forces_across_cloud')
+  sum_forces_across_cloud.prepare('PiiP')
 
 
 class GPUTracker(tracking.Tracker):
+  def __init__(self, tracked_obj):
+    tracking.Tracker.__init__(self, tracked_obj)
+    self.K, self.D = self.tracked_obj.get_num_nodes(), 3
+    self.model_xyz_gpu = gpuarray.empty((self.K, self.D), np.float32)
+    self.visibilities_gpu = gpuarray.empty(self.K, np.float32)
+    self.force_kd_gpu = gpuarray.empty((self.K, self.D), np.float32)
+
+    # max number of cloud points
+    self.max_N = 10000
+    self.cloud_xyz_gpu = gpuarray.empty((self.max_N, self.D), np.float32)
+    self.force_cache_nkd_gpu = gpuarray.empty((self.max_N, self.K, self.D), np.float32)
+    self.alpha_nk_gpu = gpuarray.empty((self.max_N, self.K), np.float32)
+    self.normalization_n_gpu = gpuarray.empty(self.max_N, np.float32)
+
   def set_input(self, cloud_xyz, depth, T_w_k):
     self.cloud_xyz, self.depth, self.T_w_k = cloud_xyz, depth, T_w_k
-    self.cloud_xyz_gpu = gpuarray.to_gpu(cloud_xyz.astype(np.float32))
     self.N, self.K, self.D = len(cloud_xyz), self.tracked_obj.get_num_nodes(), cloud_xyz.shape[1]
+    if self.N > self.max_N:
+      print 'WARNING: more points in cloud (%d) than points in pre-allocated memory (%d). Truncating cloud.' % (self.N, self.max_N)
+      cloud_xyz = cloud_xyz[:self.max_N]
+      self.N = self.max_N
+    cuda.memcpy_htod(self.cloud_xyz_gpu.gpudata, cloud_xyz.astype(np.float32))
 
   def calc_correspondences(self, visibility):
     # Calculate expected correspondences
-    t_begin_corr = time.time()
-    self.model_xyz_gpu = gpuarray.to_gpu(self.tracked_obj.get_node_positions().astype(np.float32)) # need to re-copy after every physics step
-    visibilities_gpu = gpuarray.to_gpu(visibility.astype(np.float32))
-    alpha_nk_gpu = GPUMethods.spherical_mvn_densities(self.cloud_xyz_gpu, self.model_xyz_gpu, self.sigma)
-    GPUMethods.mult_rowwise(alpha_nk_gpu.gpudata, visibilities_gpu.gpudata, np.int32(self.N), np.int32(self.K), block=GPUArgs.block(), grid=GPUArgs.grid(self.N, self.K))
-    norms_n = 1. / (alpha_nk_gpu.get().sum(axis=1) + self.pnoise)
-    GPUMethods.mult_colwise(alpha_nk_gpu.gpudata, gpuarray.to_gpu(norms_n.astype(np.float32)).gpudata, np.int32(self.N), np.int32(self.K), block=GPUArgs.block(), grid=GPUArgs.grid(self.N, self.K))
-    tracking.Timing.t_total_corr += time.time() - t_begin_corr
-    return alpha_nk_gpu
+    cuda.memcpy_htod(self.model_xyz_gpu.gpudata, self.tracked_obj.get_node_positions().astype(np.float32))
+    cuda.memcpy_htod(self.visibilities_gpu.gpudata, visibility.astype(np.float32))
+    GPUMethods.spherical_mvn.prepared_call(
+      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
+      self.cloud_xyz_gpu.gpudata, self.model_xyz_gpu.gpudata, self.sigma, self.N, self.K, self.alpha_nk_gpu.gpudata
+    )
+    GPUMethods.mult_rowwise.prepared_call(
+      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
+      self.alpha_nk_gpu.gpudata, self.visibilities_gpu.gpudata, self.N, self.K
+    )
+    GPUMethods.calc_corr_normalization.prepared_call(
+      (int(np.ceil(self.N/64.)), 1), (64, 1, 1),
+      self.alpha_nk_gpu.gpudata, self.pnoise, self.N, self.K, self.normalization_n_gpu.gpudata
+    )
+    GPUMethods.mult_colwise.prepared_call(
+      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
+      self.alpha_nk_gpu.gpudata, self.normalization_n_gpu.gpudata, self.N, self.K
+    )
+    return self.alpha_nk_gpu
 
   def calc_forces(self, alpha_nk_gpu):
     # Calculate forces
-    t_begin_forces = time.time()
-    force_kd_gpu = gpuarray.empty((self.N, self.K, 3), np.float32)
-    GPUMethods.calc_forces(np.float32(self.force_lambda), alpha_nk_gpu.gpudata, self.cloud_xyz_gpu.gpudata, self.model_xyz_gpu.gpudata, np.int32(self.N), np.int32(self.K), force_kd_gpu.gpudata, block=GPUArgs.block(), grid=GPUArgs.grid(self.N, self.K))
-    force_kd = force_kd_gpu.get().sum(axis=0).astype(float)
-    tracking.Timing.t_total_forces += time.time() - t_begin_forces
+    GPUMethods.calc_forces.prepared_call(
+      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
+      self.force_lambda, alpha_nk_gpu.gpudata, self.cloud_xyz_gpu.gpudata, self.model_xyz_gpu.gpudata, self.N, self.K, self.force_cache_nkd_gpu.gpudata,
+    )
+    GPUMethods.sum_forces_across_cloud.prepared_call(
+      (1, int(np.ceil(self.K/64.))), (self.D, 64, 1),
+      self.force_cache_nkd_gpu.gpudata, self.N, self.K, self.force_kd_gpu.gpudata,
+    )
+    force_kd = self.force_kd_gpu.get().astype(float)
     return force_kd
