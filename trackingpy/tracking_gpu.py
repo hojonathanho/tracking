@@ -119,7 +119,7 @@ class GPUTracker(tracking.Tracker):
     self.normalization_n_gpu = gpuarray.empty(self.max_N, np.float32)
 
   def set_input(self, cloud_xyz, depth, T_w_k):
-    self.cloud_xyz, self.depth, self.T_w_k = cloud_xyz, depth, T_w_k
+    tracking.Tracker.set_input(self, cloud_xyz, depth, T_w_k)
     self.N, self.K, self.D = len(cloud_xyz), self.tracked_obj.get_num_nodes(), cloud_xyz.shape[1]
     if self.N > self.max_N:
       print 'WARNING: more points in cloud (%d) than points in pre-allocated memory (%d). Truncating cloud.' % (self.N, self.max_N)
