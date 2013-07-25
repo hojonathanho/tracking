@@ -13,7 +13,7 @@ def depth_to_xyz(depth, depth_scale):
   x,y = np.meshgrid(np.arange(DepthCameraParams.nx), np.arange(DepthCameraParams.ny))
   assert depth.shape == (DepthCameraParams.ny, DepthCameraParams.nx)
   XYZ = np.empty((DepthCameraParams.ny, DepthCameraParams.nx, 3))
-  Z = XYZ[:,:,2] = depth * depth_scale # convert mm -> meters
+  Z = XYZ[:,:,2] = depth * depth_scale
   XYZ[:,:,0] = (x - DepthCameraParams.cx)*(Z/DepthCameraParams.f)
   XYZ[:,:,1] = (y - DepthCameraParams.cy)*(Z/DepthCameraParams.f)
   return XYZ
@@ -63,7 +63,7 @@ def extract_color(rgb, depth, T_w_k, color_mask_func=red_mask, min_height=.7, ds
 
   valid_mask = depth > 0
 
-  xyz_k = depth_to_xyz(depth, depth_scale=1/1000.)
+  xyz_k = depth_to_xyz(depth, depth_scale=1/1000.) # depth_scale converts mm -> meters
   xyz_w = xyz_k.dot(T_w_k[:3,:3].T) + T_w_k[:3,3][None,None,:]
 
   z = xyz_w[:,:,2]   
