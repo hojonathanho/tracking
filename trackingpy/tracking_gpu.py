@@ -7,20 +7,18 @@ import pycuda.autoinit
 import pycuda.gpuarray as gpuarray
 import pycuda.compiler
 
-class GPUArgs(object):
-  @staticmethod
-  def block():
-    return (32, 32, 1)
+def div_up(x, y):
+  return int(np.ceil(float(x)/y))
 
-  @staticmethod
-  def grid(N, K):
-    return (int(np.ceil(float(K)/GPUArgs.block()[0])), int(np.ceil(float(N)/GPUArgs.block()[1])))
+class GPUParams(object):
+  max_threads_per_block = pycuda.autoinit.device.get_attribute(pycuda.driver.device_attribute.MAX_THREADS_PER_BLOCK)
+  max_square_side = int(np.sqrt(max_threads_per_block))
 
-class GPUMethods(object):
+class GPUFunctions(object):
   mod = pycuda.compiler.SourceModule("""
 #define D 3
 
-__global__ void spherical_mvn(float *x_nd, float *m_kd, float cov, int N, int K, float *out) {
+__global__ void isotropic_mvn(float *x_nd, float *m_kd, float cov, int N, int K, float *out) {
   int i = threadIdx.y + blockIdx.y*blockDim.y;
   int j = threadIdx.x + blockIdx.x*blockDim.x;
   if (i >= N || j >= K) return;
@@ -84,35 +82,56 @@ __global__ void sum_forces_across_cloud(float *in_nkd, int N, int K, float *out_
 
   """)
 
-  spherical_mvn = mod.get_function('spherical_mvn')
-  spherical_mvn.prepare('PPfiiP')
+  class FuncWrapper(object):
+    def __init__(self, mod, name, arg_spec):
+      self.fn = mod.get_function(name)
+      self.fn.prepare(arg_spec)
+      self.grid, self.block = None, None
 
-  calc_corr_normalization = mod.get_function('calc_corr_normalization')
-  calc_corr_normalization.prepare('PfiiP')
+    def __call__(self, *args):
+      assert self.grid is not None and self.block is not None
+      return self.fn.prepared_call(self.grid, self.block, *args)
 
-  mult_rowwise = mod.get_function('mult_rowwise')
-  mult_rowwise.prepare('PPii')
+  isotropic_mvn = FuncWrapper(mod, 'isotropic_mvn', 'PPfiiP')
+  calc_corr_normalization = FuncWrapper(mod, 'calc_corr_normalization', 'PfiiP')
+  mult_rowwise = FuncWrapper(mod, 'mult_rowwise', 'PPii')
+  mult_colwise = FuncWrapper(mod, 'mult_colwise', 'PPii')
+  calc_forces = FuncWrapper(mod, 'calc_forces', 'fPPPiiP')
+  sum_forces_across_cloud = FuncWrapper(mod, 'sum_forces_across_cloud', 'PiiP')
 
-  mult_colwise = mod.get_function('mult_colwise')
-  mult_colwise.prepare('PPii')
+  @classmethod
+  def set_grid_and_block_sizes(cls, N, K, D):
+    square_side = min(32, GPUParams.max_square_side)
 
-  calc_forces = mod.get_function('calc_forces')
-  calc_forces.prepare('fPPPiiP')
+    cls.isotropic_mvn.block = (square_side, square_side, 1)
+    cls.isotropic_mvn.grid = (div_up(K, cls.isotropic_mvn.block[0]), div_up(N, cls.isotropic_mvn.block[1]))
 
-  sum_forces_across_cloud = mod.get_function('sum_forces_across_cloud')
-  sum_forces_across_cloud.prepare('PiiP')
+    cls.calc_corr_normalization.block = (64, 1, 1)
+    cls.calc_corr_normalization.grid = (div_up(N, cls.calc_corr_normalization.block[0]), 1)
 
+    cls.mult_rowwise.block = (square_side, square_side, 1)
+    cls.mult_rowwise.grid = (div_up(K, cls.mult_rowwise.block[0]), div_up(N, cls.mult_rowwise.block[1]))
+
+    cls.mult_colwise.block = (square_side, square_side, 1)
+    cls.mult_colwise.grid = (div_up(K, cls.mult_colwise.block[0]), div_up(N, cls.mult_colwise.block[1]))
+
+    cls.calc_forces.block = (square_side, square_side, 1)
+    cls.calc_forces.grid = (div_up(K, cls.calc_forces.block[0]), div_up(N, cls.calc_forces.block[1]))
+
+    cls.sum_forces_across_cloud.block = (D, min(64, GPUParams.max_threads_per_block//D), 1)
+    cls.sum_forces_across_cloud.grid = (1, div_up(K, 64))
 
 class GPUTracker(tracking.Tracker):
   def __init__(self, tracked_obj):
     tracking.Tracker.__init__(self, tracked_obj)
     self.K, self.D = self.tracked_obj.get_num_nodes(), 3
+    self.max_N = 10000 # max number of cloud points
+
+    # pre-allocate GPU memory
     self.model_xyz_gpu = gpuarray.empty((self.K, self.D), np.float32)
     self.visibilities_gpu = gpuarray.empty(self.K, np.float32)
     self.force_kd_gpu = gpuarray.empty((self.K, self.D), np.float32)
-
-    # max number of cloud points
-    self.max_N = 10000
+    # for arrays with input-dependent sizes, allocate a maximum amount
     self.cloud_xyz_gpu = gpuarray.empty((self.max_N, self.D), np.float32)
     self.force_cache_nkd_gpu = gpuarray.empty((self.max_N, self.K, self.D), np.float32)
     self.alpha_nk_gpu = gpuarray.empty((self.max_N, self.K), np.float32)
@@ -120,44 +139,30 @@ class GPUTracker(tracking.Tracker):
 
   def set_input(self, cloud_xyz, depth, T_w_k):
     tracking.Tracker.set_input(self, cloud_xyz, depth, T_w_k)
-    self.N, self.K, self.D = len(cloud_xyz), self.tracked_obj.get_num_nodes(), cloud_xyz.shape[1]
+
+    # copy the input point cloud to the gpu
+    self.N = len(cloud_xyz)
     if self.N > self.max_N:
       print 'WARNING: more points in cloud (%d) than points in pre-allocated memory (%d). Truncating cloud.' % (self.N, self.max_N)
       cloud_xyz = cloud_xyz[:self.max_N]
       self.N = self.max_N
     cuda.memcpy_htod(self.cloud_xyz_gpu.gpudata, cloud_xyz.astype(np.float32))
 
+    # set block sizes of kernels
+    GPUFunctions.set_grid_and_block_sizes(self.N, self.K, self.D)
+
   def calc_correspondences(self, visibility):
-    # Calculate expected correspondences
     cuda.memcpy_htod(self.model_xyz_gpu.gpudata, self.tracked_obj.get_node_positions().astype(np.float32))
     cuda.memcpy_htod(self.visibilities_gpu.gpudata, visibility.astype(np.float32))
-    GPUMethods.spherical_mvn.prepared_call(
-      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
-      self.cloud_xyz_gpu.gpudata, self.model_xyz_gpu.gpudata, self.sigma, self.N, self.K, self.alpha_nk_gpu.gpudata
-    )
-    GPUMethods.mult_rowwise.prepared_call(
-      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
-      self.alpha_nk_gpu.gpudata, self.visibilities_gpu.gpudata, self.N, self.K
-    )
-    GPUMethods.calc_corr_normalization.prepared_call(
-      (int(np.ceil(self.N/64.)), 1), (64, 1, 1),
-      self.alpha_nk_gpu.gpudata, self.pnoise, self.N, self.K, self.normalization_n_gpu.gpudata
-    )
-    GPUMethods.mult_colwise.prepared_call(
-      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
-      self.alpha_nk_gpu.gpudata, self.normalization_n_gpu.gpudata, self.N, self.K
-    )
+
+    GPUFunctions.isotropic_mvn(self.cloud_xyz_gpu.gpudata, self.model_xyz_gpu.gpudata, self.sigma, self.N, self.K, self.alpha_nk_gpu.gpudata)
+    GPUFunctions.mult_rowwise(self.alpha_nk_gpu.gpudata, self.visibilities_gpu.gpudata, self.N, self.K)
+    GPUFunctions.calc_corr_normalization(self.alpha_nk_gpu.gpudata, self.pnoise, self.N, self.K, self.normalization_n_gpu.gpudata)
+    GPUFunctions.mult_colwise(self.alpha_nk_gpu.gpudata, self.normalization_n_gpu.gpudata, self.N, self.K)
     return self.alpha_nk_gpu
 
   def calc_forces(self, alpha_nk_gpu):
-    # Calculate forces
-    GPUMethods.calc_forces.prepared_call(
-      GPUArgs.grid(self.N, self.K), GPUArgs.block(),
-      self.force_lambda, alpha_nk_gpu.gpudata, self.cloud_xyz_gpu.gpudata, self.model_xyz_gpu.gpudata, self.N, self.K, self.force_cache_nkd_gpu.gpudata,
-    )
-    GPUMethods.sum_forces_across_cloud.prepared_call(
-      (1, int(np.ceil(self.K/64.))), (self.D, 64, 1),
-      self.force_cache_nkd_gpu.gpudata, self.N, self.K, self.force_kd_gpu.gpudata,
-    )
+    GPUFunctions.calc_forces(self.force_lambda, alpha_nk_gpu.gpudata, self.cloud_xyz_gpu.gpudata, self.model_xyz_gpu.gpudata, self.N, self.K, self.force_cache_nkd_gpu.gpudata)
+    GPUFunctions.sum_forces_across_cloud(self.force_cache_nkd_gpu.gpudata, self.N, self.K, self.force_kd_gpu.gpudata)
     force_kd = self.force_kd_gpu.get().astype(float)
     return force_kd

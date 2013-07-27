@@ -1,6 +1,6 @@
 import numpy as np
 import trackingpy
-from trackingpy.cloth import Cloth, Mesh
+from trackingpy.model import Model, Mesh
 
 def make_table_xml(translation, extents):
   xml = """

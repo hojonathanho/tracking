@@ -10,6 +10,7 @@ class DepthCameraParams(object):
   f = 544.260779961
 
 def depth_to_xyz(depth, depth_scale):
+  '''Converts a NxM depth image to a NxMx3 array of points, one for each depth pixel'''
   x,y = np.meshgrid(np.arange(DepthCameraParams.nx), np.arange(DepthCameraParams.ny))
   assert depth.shape == (DepthCameraParams.ny, DepthCameraParams.nx)
   XYZ = np.empty((DepthCameraParams.ny, DepthCameraParams.nx, 3))
@@ -19,6 +20,10 @@ def depth_to_xyz(depth, depth_scale):
   return XYZ
 
 def lookup_depth_by_xyz(depth, xyz):
+  '''Given a NxM depth image and a Kx3 array of points in the camera frame, looks up the closest
+     depth pixel corresponding to each point, producing a length-K array of depth values.
+     Points outside the camera view are given a depth value of -1.
+  '''
   assert len(xyz.shape) == 2 and xyz.shape[1] == 3
   x, y, z = xyz[:,0], xyz[:,1], xyz[:,2]
 
@@ -51,9 +56,7 @@ def yellow_mask(h, s, v):
   return (h > 20) & (h < 30) & (s > 10) & (v > 100)
 
 def extract_color(rgb, depth, T_w_k, color_mask_func=red_mask, min_height=.7, ds=.015):
-  """
-  extract red points and downsample
-  """
+  '''Convert rgb/depth to xyz, extract points according to a mask, and downsample'''
 
   hsv = cv2.cvtColor(rgb, cv2.COLOR_BGR2HSV)
   h = hsv[:,:,0]

@@ -15,7 +15,7 @@ def make_mass_system(init_pos, masses, triangles, sim_params):
       i, j = min(edge_i, edge_j), max(edge_i, edge_j)
       edge2triangles[(i,j)].append(tri)
       if len(edge2triangles[(i,j)]) > 1: continue
-      sys.add_distance_constraint(i, j, np.linalg.norm(init_pos[i] - init_pos[j]))
+      sys.add_distance_constraint(int(i), int(j), np.linalg.norm(init_pos[i] - init_pos[j]))
   edges = np.array(edge2triangles.keys())
   print 'number of edges', len(edges)
 
@@ -30,7 +30,7 @@ def make_mass_system(init_pos, masses, triangles, sim_params):
     p1, p2, p3, p4 = common_nodes[0], common_nodes[1], np.setdiff1d(tri1, common_nodes)[0], np.setdiff1d(tri2, common_nodes)[0]
     n1 = np.cross(init_pos[p2] - init_pos[p1], init_pos[p3] - init_pos[p1]); n1 /= np.linalg.norm(n1)
     n2 = np.cross(init_pos[p2] - init_pos[p1], init_pos[p4] - init_pos[p1]); n2 /= np.linalg.norm(n2)
-    sys.add_bending_constraint(p1, p2, p3, p4, np.arccos(n1.dot(n2)))
+    sys.add_bending_constraint(int(p1), int(p2), int(p3), int(p4), np.arccos(n1.dot(n2)))
     num_bending_constraints += 1
   print 'number of bending constraints', num_bending_constraints
 
@@ -61,7 +61,7 @@ class TriangleMesh(object):
 
     init_pos = np.array(vertices)
     init_pos -= init_pos.mean(axis=0) - init_center
-    triangles = np.array(triangles, dtype='int32')
+    triangles = np.array(triangles, dtype=np.int32)
     num_nodes = len(init_pos)
     masses = np.ones(num_nodes) * (float(total_mass) / num_nodes)
     sys, edges = make_mass_system(init_pos, masses, triangles, sim_params)
@@ -98,7 +98,7 @@ class Cloth(TriangleMesh):
     # declare which triples of nodes constitute triangles
     # (currently only used for raycasting)
     num_triangles = 2 * (self.res_x-1) * (self.res_y-1)
-    triangles = np.empty((num_triangles, 3), dtype='int32')
+    triangles = np.empty((num_triangles, 3), dtype=np.int32)
     curr = 0
     for i in range(self.num_nodes):
       x, y = self._i_to_xy(i)

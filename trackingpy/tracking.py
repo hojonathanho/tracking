@@ -22,9 +22,9 @@ def mvn_densities(x_nd, m_kd, cov_dd):
   out /= np.sqrt(np.power(2.*np.pi, d) * cov_det)
   return out.reshape((n, k))
 
-def spherical_mvn_densities(x_nd, m_kd, cov):
+def isotropic_mvn_densities(x_nd, m_kd, cov):
   """
-  Given an array of N D-dimensional points, K means, and a single covariance matrix,
+  Given an array of N D-dimensional points, K means, and a single float representing the covariance matrix cov*eye(D),
     returns a NxK array of Gaussian densities
   """
 
@@ -58,14 +58,13 @@ class Tracker(object):
     self.cloud_xyz, self.depth, self.T_w_k = cloud_xyz, depth, T_w_k
 
   def calc_visibility(self):
-    # Calculate visibility
-    # check for nodes occluded by other nodes by raycasting from the camera
+    # Check for nodes occluded by other nodes by raycasting from the camera
     model_xyz = self.tracked_obj.get_node_positions()
     raytest_results = np.asarray(self.tracked_obj.sys.triangle_ray_test_against_nodes(self.T_w_k[:3,3]))
     occluded_by_model = raytest_results >= 0
     visibility = np.ones_like(occluded_by_model, dtype=float)
     visibility[occluded_by_model] = self.pinvisible
-    # check if depth image contains a point significantly in front of a model node
+    # Check if depth image contains a point significantly in front of a model node
     dist_cam2node = norms(self.T_w_k[:3,3][None,:] - model_xyz, axis=1)
     T_k_w = np.linalg.inv(self.T_w_k)
     depth_cam2node = clouds.lookup_depth_by_xyz(self.depth, model_xyz.dot(T_k_w[:3,:3].T) + T_k_w[:3,3])
@@ -74,35 +73,38 @@ class Tracker(object):
     return visibility, occluded_by_model, occluded_in_depth_img
 
   def calc_correspondences(self, visibility):
-    # Calculate expected correspondences
     model_xyz = self.tracked_obj.get_node_positions()
-    alpha_nk = spherical_mvn_densities(self.cloud_xyz, model_xyz, self.sigma) * visibility[None,:]
+    alpha_nk = isotropic_mvn_densities(self.cloud_xyz, model_xyz, self.sigma) * visibility[None,:]
     alpha_nk /= (alpha_nk.sum(axis=1) + self.pnoise)[:,None]
     return alpha_nk
 
   def calc_forces(self, alpha_nk):
-    # Calculate forces
     model_xyz = self.tracked_obj.get_node_positions()
     force_kd = self.force_lambda * (alpha_nk[:,:,None] * (self.cloud_xyz[:,None,:] - model_xyz[None,:,:])).sum(axis=0)
     return force_kd
 
   def step(self, return_data=False):
+    # Main tracking algorithm
     for em_iter in range(self.num_em_iters):
       print 'EM iteration %d/%d' % (em_iter+1, self.num_em_iters)
       t_begin = time.time()
 
+      # Calculate visibility
       t_begin_visibility = time.time()
       visibility_k, occluded_by_model, occluded_in_depth_img = self.calc_visibility()
       Timing.t_total_visibility += time.time() - t_begin_visibility
 
+      # Calculate expected correspondences
       t_begin_corr = time.time()
       alpha_nk = self.calc_correspondences(visibility_k)
       Timing.t_total_corr += time.time() - t_begin_corr
 
+      # Calculate forces to apply to model
       t_begin_forces = time.time()
       force_kd = self.calc_forces(alpha_nk)
       Timing.t_total_forces += time.time() - t_begin_forces
 
+      # Step the physics simulation
       t_begin_physics = time.time()
       self.tracked_obj.sys.apply_forces(force_kd)
       self.tracked_obj.step()
@@ -136,12 +138,12 @@ class Tests(unittest.TestCase):
       for j in range(len(m_kd)):
         self.assertEqual(out[i,j], mvn_densities(x_nd[[i]], m_kd[[j]], cov_dd))
 
-  def test_mvn_densities_spherical(self):
+  def test_mvn_densities_isotropic(self):
     x_nd = np.array([[0,0,0], [1,1,1], [1,1,2]])
     m_kd = np.array([[1,1,1], [-1,0,6]])
     cov = 3.1415926
     cov_dd = np.diag((cov, cov, cov))
-    self.assertTrue(np.allclose(mvn_densities(x_nd, m_kd, cov_dd), spherical_mvn_densities(x_nd, m_kd, cov)))
+    self.assertTrue(np.allclose(mvn_densities(x_nd, m_kd, cov_dd), isotropic_mvn_densities(x_nd, m_kd, cov)))
 
 
 if __name__ == '__main__':
